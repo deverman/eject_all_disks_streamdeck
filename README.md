@@ -19,7 +19,7 @@ A Stream Deck plugin that adds a button to safely eject all external disks on ma
 
 ## Installation
 
-1. Download the latest release from the [releases page](https://github.com/brentdeverman/eject-all-disks-streamdeck/releases)
+1. Download the latest release from the [releases page](https://github.com/deverman/eject-all-disks-streamdeck/releases)
 2. Double-click the downloaded `.streamDeckPlugin` file to install it
 3. Stream Deck will prompt you to install the plugin
 
@@ -166,13 +166,9 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## Support
 
 If you encounter any issues:
-1. Check the [Issues](https://github.com/brentdeverman/eject-all-disks-streamdeck/issues) page
+1. Check the [Issues](https://github.com/deverman/eject-all-disks-streamdeck/issues) page
 2. File a new issue with:
    - macOS version
    - Stream Deck software version
    - Steps to reproduce
    - Error messages if any
-
----
-
-Made with ❤️ by Brent Deverman
