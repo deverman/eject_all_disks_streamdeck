@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,minimum-scale=1,user-scalable=no,minimal-ui,viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <title>Eject All Disks Settings</title>
+    <link rel="stylesheet" href="../libs/css/sdpi.css">
+</head>
+<body>
+    <div class="sdpi-wrapper">
+        <div class="sdpi-item">
+            <div class="sdpi-item-label">Title</div>
+            <div class="sdpi-item-value">
+                <div class="sdpi-item-child">
+                    <input id="showTitle" type="checkbox" checked>
+                    <label for="showTitle" class="sdpi-item-label"><span></span>Show text on button</label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="../libs/js/property-inspector.js"></script>
+    <script>
+        function connectElgatoStreamDeckSocket(inPort, inPluginUUID, inRegisterEvent, inInfo, inActionInfo) {
+            var websocket = null;
+            var uuid = inPluginUUID;
+            var actionInfo = JSON.parse(inActionInfo);
+            var info = JSON.parse(inInfo);
+
+            function registerPlugin(inRegisterEvent) {
+                var json = {
+                    "event": inRegisterEvent,
+                    "uuid": uuid
+                };
+                websocket.send(JSON.stringify(json));
+            }
+
+            websocket = new WebSocket("ws://127.0.0.1:" + inPort);
+
+            websocket.onopen = function() {
+                registerPlugin(inRegisterEvent);
+                requestSettings();
+            };
+
+            websocket.onmessage = function(evt) {
+                var jsonObj = JSON.parse(evt.data);
+                var event = jsonObj['event'];
+                if (event === "didReceiveSettings") {
+                    var settings = jsonObj.payload.settings;
+                    if (settings.showTitle !== undefined) {
+                        document.getElementById('showTitle').checked = settings.showTitle;
+                    }
+                }
+            };
+
+            function sendSettings() {
+                if (websocket) {
+                    var showTitle = document.getElementById('showTitle').checked;
+                    var json = {
+                        "event": "setSettings",
+                        "context": uuid,
+                        "payload": {
+                            "showTitle": showTitle
+                        }
+                    };
+                    websocket.send(JSON.stringify(json));
+                }
+            }
+
+            function requestSettings() {
+                if (websocket) {
+                    var json = {
+                        "event": "getSettings",
+                        "context": uuid
+                    };
+                    websocket.send(JSON.stringify(json));
+                }
+            }
+
+            document.getElementById('showTitle').addEventListener('change', sendSettings);
+        }
+    </script>
+</body>
+</html>

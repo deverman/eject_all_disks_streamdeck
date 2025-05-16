@@ -1,0 +1,103 @@
+# Guidance for Building StreamDeck Plugins
+
+## Project Structure
+
+### Required Files
+- `manifest.json` - Plugin configuration, paths, and metadata
+- `*.sdPlugin` directory - Contains all plugin files
+  - `/bin` - Compiled JavaScript files
+  - `/ui` - Property Inspector HTML files
+  - `/libs` - SDK libraries and assets
+  - `/imgs` - Plugin images and icons
+
+### Property Inspector
+- Place HTML files in `/ui` directory not `/pi`
+- Always include required meta tags:
+```html
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,minimum-scale=1,user-scalable=no,minimal-ui,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+```
+- Use Stream Deck's CSS classes for consistent styling:
+  - `sdpi-wrapper` for the main container
+  - `sdpi-item` for form elements
+  - `sdpi-item-label` for labels
+  - `sdpi-item-value` for input containers
+
+## Settings Implementation
+
+### TypeScript Plugin
+- Define settings interface explicitly:
+```typescript
+type Settings = {
+  propertyName: boolean | string | number;
+};
+```
+- Use default settings object:
+```typescript
+const DEFAULT_SETTINGS: Settings = {
+  propertyName: defaultValue
+};
+```
+- Handle settings in proper lifecycle methods:
+  - `onWillAppear` - Initialize defaults
+  - `onDidReceiveSettings` - React to changes
+  - Always merge with defaults when accessing settings
+
+### Property Inspector
+- Required files:
+  - `sdpi.css` for styling
+  - `property-inspector.js` for core functionality
+- Proper WebSocket event flow:
+  1. Connect WebSocket
+  2. Register plugin
+  3. Request initial settings
+  4. Handle settings updates
+  5. Send settings changes
+
+## Button State Management
+
+### Title Options
+Only use documented properties:
+- `state`: (number) - Button state (0 or 1)
+- `target`: (Target) - Display target (Hardware, Software, both)
+✅ `setTitle("Text", { state: 0, target: Target.Hardware })`
+❌ `setTitle("Text", { color: "#FFF" })`
+
+### Image Options
+- Use SVG for dynamic icons
+- Add semi-transparent backgrounds for text contrast
+- Use stroke outlines for better visibility
+- Include error and success states
+✅ `setImage("data:image/svg+xml,${svg}", { state: 0 })`
+❌ `setImage("path.png", { tint: "blue" })`
+
+## Development Best Practices
+
+### Settings Persistence
+- Always handle undefined settings gracefully
+- Set defaults in both UI and plugin code
+- Use proper typing for type safety
+- Test settings persistence across:
+  - Stream Deck restarts
+  - Profile changes
+  - Property Inspector reopens
+
+### Error Handling
+- Log errors with streamDeck.logger
+- Show visual feedback for errors
+- Reset to normal state after errors
+- Include error recovery in state management
+
+### Testing
+- Validate plugin with `streamdeck validate`
+- Test on both hardware and software displays
+- Verify settings persistence
+- Check all state transitions
+- Test error conditions
+
+## Documentation Links
+- [Getting Started](https://docs.elgato.com/streamdeck/sdk/introduction/getting-started)
+- [Settings Guide](https://docs.elgato.com/streamdeck/sdk/guides/settings)
+- [Property Inspector](https://docs.elgato.com/streamdeck/sdk/guides/property-inspector)
+- [API Reference](https://docs.elgato.com/streamdeck/sdk/api-reference)

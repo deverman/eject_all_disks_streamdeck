@@ -1,0 +1,44 @@
+{
+	"Name": "Eject All Disks",
+	"Version": "0.1.0.0",
+	"Author": "Brent Deverman",
+	"Actions": [
+		{
+			"Name": "Eject All Disks",
+			"UUID": "org.deverman.ejectalldisks.eject",
+			"Icon": "imgs/actions/eject/icon",
+			"Tooltip": "Ejects all external disks.",
+			"PropertyInspectorPath": "ui/eject-all-disks.html",
+			"Controllers": [
+				"Keypad"
+			],
+			"States": [
+				{
+					"Image": "imgs/actions/eject/state",
+					"TitleAlignment": "middle",
+					"FontSize": 16
+				}
+			]
+		}
+	],
+	"Category": "Eject All Disks",
+	"CategoryIcon": "imgs/plugin/category-icon",
+	"CodePath": "bin/plugin.js",
+	"Description": "Ejects all external hard disks",
+	"Icon": "imgs/plugin/marketplace",
+	"SDKVersion": 2,
+	"Software": {
+		"MinimumVersion": "6.4"
+	},
+	"OS": [
+		{
+			"Platform": "mac",
+			"MinimumVersion": "12"
+		}
+	],
+	"Nodejs": {
+		"Version": "20",
+		"Debug": "enabled"
+	},
+	"UUID": "org.deverman.ejectalldisks"
+}
