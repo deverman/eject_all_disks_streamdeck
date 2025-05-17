@@ -9,10 +9,278 @@
   - `/ui` - Property Inspector HTML files
   - `/libs` - SDK libraries and assets
   - `/imgs` - Plugin images and icons
+  - `/layouts` - Custom layouts for encoders (if applicable)
+
+### Organization
+- Keep related files in appropriate subdirectories
+- Use clear naming conventions for files and directories
+- Place layouts in a dedicated `/layouts` directory
+- Structure TypeScript files by feature/action in `/src`
+
+## TypeScript Implementation
+
+### Action Classes
+- Use class-based action implementations with decorators
+```typescript
+@action({ UUID: 'com.example.action-id' })
+export class MyAction extends SingletonAction<MySettings> {
+  // Implementation
+}
+```
+
+### Class Inheritance
+- `Action` - Base class for standard actions
+- `SingletonAction` - For actions that need to track all instances
+- Always implement the `override` keyword for overridden methods
+
+### Type Safety
+- Define explicit types for settings and state
+```typescript
+type MySettings = {
+  propertyName: boolean | string | number;
+};
+
+const DEFAULT_SETTINGS: MySettings = {
+  propertyName: defaultValue
+};
+```
+
+- Use generics with event types for type safety
+```typescript
+override onWillAppear(ev: WillAppearEvent<MySettings>): void {
+  // Implementation
+}
+```
+
+### Async Patterns
+- Use async/await for asynchronous operations
+```typescript
+async function fetchData() {
+  try {
+    const response = await fetch('https://api.example.com/data');
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    streamDeck.logger.error('Failed to fetch data:', error);
+    return null;
+  }
+}
+```
+
+## Action Development
+
+### Event Handlers
+- Implement lifecycle handlers appropriately:
+  - `onWillAppear` - Initialize state, prepare action
+  - `onWillDisappear` - Clean up resources
+  - `onDidReceiveSettings` - React to settings changes
+  - `onKeyDown`, `onKeyUp` - Handle key press events
+  - `onDialRotate` - Handle encoder rotation (for encoders)
+  - `onTouchTap` - Handle touch display taps (for encoders)
+
+### Position Awareness
+- Check if coordinates are available and action is not in a multi-action
+```typescript
+if (ev.action.isKey() && !ev.payload.isInMultiAction && ev.payload.coordinates) {
+  // Use coordinates
+}
+```
+
+- Implement position-based logic for spatially-aware actions
+```typescript
+*adjacentItems(deviceId: string, coordinates: Coordinates): IterableIterator<KeyAction> {
+  // Find adjacent actions
+}
+```
+
+### Multi-Action Compatibility
+- Always check if action is in a multi-action before accessing coordinates
+```typescript
+if (ev.payload.isInMultiAction) {
+  // Handle multi-action case differently
+  return;
+}
+```
+
+### Button State Management
+- Document and use the proper state properties
+```typescript
+// Set state number (0-based)
+action.setState(newState);
+
+// Set title with options
+action.setTitle("Text", { 
+  state: 0, 
+  target: Target.Hardware 
+});
+
+// Set image with state
+action.setImage("data:image/svg+xml,${svg}", { state: 0 });
+```
+
+## Resource Management
+
+### Cleanup
+- Always clean up resources when actions disappear
+```typescript
+override onWillDisappear(ev: WillDisappearEvent): void {
+  if (this.timer) {
+    clearInterval(this.timer);
+    this.timer = undefined;
+  }
+}
+```
+
+### Timers and Intervals
+- Store timer references for cleanup
+```typescript
+private timer: NodeJS.Timeout | undefined;
+
+// Setup in onWillAppear
+this.timer = setInterval(() => { /* ... */ }, interval);
+
+// Cleanup in onWillDisappear
+clearInterval(this.timer);
+this.timer = undefined;
+```
+
+## Encoder Support
+
+### Controller Type Declaration
+```json
+"Controllers": [
+  "Encoder"
+]
+```
+
+### Encoder Configuration
+```json
+"Encoder": {
+  "layout": "$B1",
+  "TriggerDescription": {
+    "Rotate": "Adjust value"
+  }
+}
+```
+
+### Layout Management
+- Built-in layouts: `$X1`, `$A0`, `$A1`, `$B1`, `$B2`, `$C1`
+- Custom layouts should be JSON files in the `layouts` directory
+```json
+{
+  "$schema": "https://schemas.elgato.com/streamdeck/plugins/layout.json",
+  "id": "custom-layout-1",
+  "items": [
+    {
+      "key": "title",
+      "type": "text",
+      "rect": [0, 0, 200, 100],
+      "font": { "size": 20, "weight": 600 }
+    }
+  ]
+}
+```
+
+### Touch Display Feedback
+```typescript
+// Change layout
+action.setFeedbackLayout('layouts/custom-layout.json');
+
+// Update values in current layout
+action.setFeedback({ title: 'New Value' });
+```
+
+## Inter-Action Communication
+
+### Dependency Injection
+```typescript
+// Create and inject dependencies
+const actionA = new ActionA();
+streamDeck.actions.registerAction(actionA);
+streamDeck.actions.registerAction(new ActionB(actionA));
+```
+
+### Shared State
+- Use Map or other collections to share state across actions
+```typescript
+private states: Map<string, number> = new Map();
+
+toggleState(actionId: string) {
+  let state = this.states.get(actionId);
+  state = state ? 0 : 1;
+  this.states.set(actionId, state);
+  return state;
+}
+```
+
+## Device-Specific Features
+
+### Device Filtering
+```typescript
+*deviceItems(deviceId: string): IterableIterator<KeyAction<Settings>> {
+  for (const action of this.actions) {
+    if (action.device.id === deviceId && action.isKey()) {
+      yield action;
+    }
+  }
+}
+```
+
+### Profile Configuration
+```json
+"Profiles": [
+  {
+    "Name": "standard",
+    "DeviceType": 0,
+    "Readonly": false,
+    "DontAutoSwitchWhenInstalled": false
+  },
+  {
+    "Name": "xl",
+    "DeviceType": 2,
+    "Readonly": false,
+    "DontAutoSwitchWhenInstalled": false
+  }
+]
+```
+
+## Error Handling and Logging
+
+### Structured Logging
+```typescript
+// Different log levels
+streamDeck.logger.trace('Detailed execution flow');
+streamDeck.logger.debug('Debug information');
+streamDeck.logger.info('General information');
+streamDeck.logger.warn('Warning condition');
+streamDeck.logger.error('Error condition', error);
+
+// Set log level
+streamDeck.logger.setLevel(LogLevel.TRACE);
+```
+
+### Error Recovery
+- Implement graceful error handling for network requests
+```typescript
+try {
+  const response = await fetch('https://api.example.com/data');
+  if (!response.ok) {
+    throw new Error(`HTTP error ${response.status}`);
+  }
+  // Process response
+} catch (error) {
+  streamDeck.logger.error('API error:', error);
+  // Visual feedback for error
+  action.setImage('error.svg');
+  // Recovery logic
+}
+```
+
+## Settings and Property Inspector
 
 ### Property Inspector
-- Place HTML files in `/ui` directory not `/pi`
-- Always include required meta tags:
+- Place HTML files in `/ui` directory
+- Include required meta tags:
 ```html
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,minimum-scale=1,user-scalable=no,minimal-ui,viewport-fit=cover">
@@ -24,80 +292,61 @@
   - `sdpi-item-label` for labels
   - `sdpi-item-value` for input containers
 
-## Settings Implementation
-
-### TypeScript Plugin
-- Define settings interface explicitly:
+### Settings Implementation
+- Merge with defaults to handle undefined settings:
 ```typescript
-type Settings = {
-  propertyName: boolean | string | number;
-};
+const settings = { ...DEFAULT_SETTINGS, ...ev.payload.settings };
 ```
-- Use default settings object:
+
+- Save settings after changes:
 ```typescript
-const DEFAULT_SETTINGS: Settings = {
-  propertyName: defaultValue
-};
+action.setSettings({ updatedProperty: newValue });
 ```
-- Handle settings in proper lifecycle methods:
-  - `onWillAppear` - Initialize defaults
-  - `onDidReceiveSettings` - React to changes
-  - Always merge with defaults when accessing settings
 
-### Property Inspector
-- Required files:
-  - `sdpi.css` for styling
-  - `property-inspector.js` for core functionality
-- Proper WebSocket event flow:
-  1. Connect WebSocket
-  2. Register plugin
-  3. Request initial settings
-  4. Handle settings updates
-  5. Send settings changes
+## Build Configuration
 
-## Button State Management
+### Rollup Setup
+- Configure development and production builds
+- Set up source maps for debugging
+- Watch mode for development:
+```json
+"watch": "rollup -c -w --watch.onEnd=\"streamdeck restart com.example.plugin\""
+```
 
-### Title Options
-Only use documented properties:
-- `state`: (number) - Button state (0 or 1)
-- `target`: (Target) - Display target (Hardware, Software, both)
-✅ `setTitle("Text", { state: 0, target: Target.Hardware })`
-❌ `setTitle("Text", { color: "#FFF" })`
+### Debug Configuration
+```json
+"Nodejs": {
+  "Version": "20",
+  "Debug": "--inspect=127.0.0.1:12311"
+}
+```
 
-### Image Options
+## Animation and Visual Effects
+
+### Timed Sequences
+```typescript
+async flashSequence(count: number): Promise<void> {
+  const delay = 100;
+  while (count-- > 0) {
+    await setTimeout(delay);
+    this.setAll(LIGHT_OFF);
+    await setTimeout(delay);
+    this.setAll(LIGHT_ON);
+  }
+}
+```
+
+### Image Guidelines
 - Use SVG for dynamic icons
 - Add semi-transparent backgrounds for text contrast
 - Use stroke outlines for better visibility
 - Include error and success states
-✅ `setImage("data:image/svg+xml,${svg}", { state: 0 })`
-❌ `setImage("path.png", { tint: "blue" })`
 
-## Development Best Practices
+## Testing Best Practices
 
-### Settings Persistence
-- Always handle undefined settings gracefully
-- Set defaults in both UI and plugin code
-- Use proper typing for type safety
-- Test settings persistence across:
-  - Stream Deck restarts
-  - Profile changes
-  - Property Inspector reopens
-
-### Error Handling
-- Log errors with streamDeck.logger
-- Show visual feedback for errors
-- Reset to normal state after errors
-- Include error recovery in state management
-
-### Testing
 - Validate plugin with `streamdeck validate`
 - Test on both hardware and software displays
-- Verify settings persistence
-- Check all state transitions
-- Test error conditions
-
-## Documentation Links
-- [Getting Started](https://docs.elgato.com/streamdeck/sdk/introduction/getting-started)
-- [Settings Guide](https://docs.elgato.com/streamdeck/sdk/guides/settings)
-- [Property Inspector](https://docs.elgato.com/streamdeck/sdk/guides/property-inspector)
-- [API Reference](https://docs.elgato.com/streamdeck/sdk/api-reference)
+- Verify settings persistence across Stream Deck restarts
+- Check behavior in multi-actions
+- Test error conditions and recovery
+- Test on all supported device types
