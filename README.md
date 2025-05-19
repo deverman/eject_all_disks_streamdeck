@@ -166,7 +166,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## Support
 
 If you encounter any issues:
-1. Check the [Issues](https://github.com/deverman/eject-all-disks-streamdeck/issues) page
+1. Check the [Issues]((https://github.com/deverman/eject_all_disks_streamdeck/issues) page
 2. File a new issue with:
    - macOS version
    - Stream Deck software version
