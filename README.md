@@ -19,7 +19,7 @@ A Stream Deck plugin that adds a button to safely eject all external disks on ma
 
 ## Installation
 
-1. Download the latest release from the [releases page](https://github.com/deverman/eject-all-disks-streamdeck/releases)
+1. Download the latest release from the [releases page](https://github.com/deverman/eject_all_disks_streamdeck/releases)
 2. Double-click the downloaded `.streamDeckPlugin` file to install it
 3. Stream Deck will prompt you to install the plugin
 
