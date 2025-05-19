@@ -172,3 +172,7 @@ If you encounter any issues:
    - Stream Deck software version
    - Steps to reproduce
    - Error messages if any
+
+## Credits
+
+Vibe coded by [Brent Deverman](https://deverman.org) using [Zed](https://zed.dev)
