@@ -21,20 +21,56 @@ export class EjectAllDisks extends SingletonAction {
   // Track timeouts for cleanup
   private timeouts: Set<NodeJS.Timeout> = new Set();
 
+  // Track disk count monitoring interval
+  private monitoringInterval: NodeJS.Timeout | null = null;
+
+  // Store current disk count
+  private currentDiskCount: number = 0;
+
   // Cleanup timeouts
   private clearTimeouts(): void {
     this.timeouts.forEach(timeout => clearTimeout(timeout));
     this.timeouts.clear();
   }
 
+  // Cleanup monitoring interval
+  private stopMonitoring(): void {
+    if (this.monitoringInterval) {
+      clearInterval(this.monitoringInterval);
+      this.monitoringInterval = null;
+    }
+  }
+
   override onWillDisappear(): void {
     this.clearTimeouts();
+    this.stopMonitoring();
   }
   /**
-   * Creates the normal eject icon SVG
+   * Gets the count of external disks
+   * @returns Promise that resolves to the number of external disks
+   */
+  private async getDiskCount(): Promise<number> {
+    try {
+      const execPromise = promisify(exec);
+      const { stdout } = await execPromise(
+        'diskutil list external | grep -o -E \'/dev/disk[0-9]+\' | sort -u',
+        { shell: '/bin/bash' }
+      );
+
+      const disks = stdout.trim().split('\n').filter(line => line.length > 0);
+      return disks.length;
+    } catch (error) {
+      streamDeck.logger.error(`Error counting disks: ${error}`);
+      return 0;
+    }
+  }
+
+  /**
+   * Creates the normal eject icon SVG with disk count
+   * @param count The number of disks to display
    * @returns SVG string for the normal eject icon
    */
-  private createNormalSvg(): string {
+  private createNormalSvg(count: number = 0): string {
     return `<svg width="144" height="144" viewBox="0 0 144 144" xmlns="http://www.w3.org/2000/svg">
       <!-- Dark background circle for better text contrast -->
       <circle cx="72" cy="72" r="65" fill="#222222" opacity="0.6"/>
@@ -44,6 +80,13 @@ export class EjectAllDisks extends SingletonAction {
         <!-- Horizontal line beneath the triangle -->
         <rect x="32" y="100" width="80" height="10" rx="2" stroke="#000000" stroke-width="2"/>
       </g>
+      <!-- Disk count badge -->
+      ${count > 0 ? `
+      <g>
+        <circle cx="110" cy="34" r="20" fill="#FF3B30" stroke="#000000" stroke-width="2"/>
+        <text x="110" y="42" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" font-weight="bold" fill="#FFFFFF">${count}</text>
+      </g>
+      ` : ''}
     </svg>`;
   }
 
@@ -188,33 +231,65 @@ export class EjectAllDisks extends SingletonAction {
   }
   
   /**
+   * Updates the disk count display
+   */
+  private async updateDiskCount(action: Action): Promise<void> {
+    const newCount = await this.getDiskCount();
+
+    // Only update if the count has changed
+    if (newCount !== this.currentDiskCount) {
+      this.currentDiskCount = newCount;
+      streamDeck.logger.info(`Disk count changed to: ${newCount}`);
+
+      // Update the icon with the new count
+      await (action as any).setImage(`data:image/svg+xml,${encodeURIComponent(this.createNormalSvg(newCount))}`, {
+        target: Target.HardwareAndSoftware
+      });
+    }
+  }
+
+  /**
+   * Starts monitoring disk count
+   */
+  private async startMonitoring(action: Action): Promise<void> {
+    // Stop any existing monitoring
+    this.stopMonitoring();
+
+    // Initial count update
+    await this.updateDiskCount(action);
+
+    // Check disk count every 3 seconds
+    this.monitoringInterval = setInterval(async () => {
+      await this.updateDiskCount(action);
+    }, 3000);
+  }
+
+  /**
    * When the action appears on screen
    */
-  override onWillAppear(
+  override async onWillAppear(
     ev: WillAppearEvent,
-  ): void | Promise<void> {
-    // Set the image using the normal eject icon
-    ev.action.setImage(`data:image/svg+xml,${encodeURIComponent(this.createNormalSvg())}`, {
-      target: Target.HardwareAndSoftware
-    });
-    
+  ): Promise<void> {
     // Get the settings or initialize default
     const settings = ev.payload.settings as EjectSettings || {};
-    
+
     // If showTitle is undefined, initialize it to true
     if (settings.showTitle === undefined) {
       settings.showTitle = true;
       ev.action.setSettings(settings);
       streamDeck.logger.info(`Initialized settings with showTitle=true`);
     }
-    
+
     // Get the show title value (default to true)
     const showTitle = settings.showTitle !== false;
-    
+
     // Update title immediately
-    return (ev.action as any).setTitle(showTitle ? "Eject All\nDisks" : "", { 
-      target: Target.HardwareAndSoftware 
+    await (ev.action as any).setTitle(showTitle ? "Eject All\nDisks" : "", {
+      target: Target.HardwareAndSoftware
     });
+
+    // Start monitoring disk count
+    await this.startMonitoring(ev.action);
   }
 
   /**
@@ -276,20 +351,19 @@ export class EjectAllDisks extends SingletonAction {
         
         // Reset title and image after 2 seconds
         const timeout = setTimeout(async () => {
-          await ev.action.setImage(`data:image/svg+xml,${encodeURIComponent(this.createNormalSvg())}`, {
-            target: Target.HardwareAndSoftware
-          });
-          
+          // Update disk count (will be 0 or less after ejecting)
+          await this.updateDiskCount(ev.action);
+
           // Get latest settings again in case they changed
           const finalSettings = await ev.action.getSettings() as EjectSettings;
           const showFinalTitle = finalSettings?.showTitle !== false;
-          
+
           await (ev.action as any).setTitle(showFinalTitle ? "Eject All\nDisks" : "", {
             target: Target.HardwareAndSoftware
           });
+
+          this.timeouts.delete(timeout);
         }, 2000);
-        this.timeouts.add(timeout);
-        this.timeouts.add(timeout);
         this.timeouts.add(timeout);
       } else {
         streamDeck.logger.info(`Disks ejected: ${stdout}`);
@@ -311,18 +385,20 @@ export class EjectAllDisks extends SingletonAction {
         
         // Reset title and image after 2 seconds
         const timeout = setTimeout(async () => {
-          await ev.action.setImage(`data:image/svg+xml,${encodeURIComponent(this.createNormalSvg())}`, {
-            target: Target.HardwareAndSoftware
-          });
-          
+          // Update disk count (will be 0 or less after ejecting)
+          await this.updateDiskCount(ev.action);
+
           // Get latest settings again in case they changed
           const finalSettings = await ev.action.getSettings() as EjectSettings;
           const showFinalTitle = finalSettings?.showTitle !== false;
-          
+
           await (ev.action as any).setTitle(showFinalTitle ? "Eject All\nDisks" : "", {
             target: Target.HardwareAndSoftware
           });
+
+          this.timeouts.delete(timeout);
         }, 2000);
+        this.timeouts.add(timeout);
       }
     } catch (error) {
       streamDeck.logger.error(`Exception: ${error}`);
@@ -343,18 +419,20 @@ export class EjectAllDisks extends SingletonAction {
       
       // Reset title and image after 2 seconds
       const timeout = setTimeout(async () => {
-        await ev.action.setImage(`data:image/svg+xml,${encodeURIComponent(this.createNormalSvg())}`, {
-          target: Target.HardwareAndSoftware
-        });
-        
+        // Update disk count
+        await this.updateDiskCount(ev.action);
+
         // Get latest settings to check if we should show title
         const finalSettings = await ev.action.getSettings() as EjectSettings;
         const showFinalTitle = finalSettings?.showTitle !== false;
-        
+
         await (ev.action as any).setTitle(showFinalTitle ? "Eject All\nDisks" : "", {
           target: Target.HardwareAndSoftware
         });
+
+        this.timeouts.delete(timeout);
       }, 2000);
+      this.timeouts.add(timeout);
     }
   }
 }

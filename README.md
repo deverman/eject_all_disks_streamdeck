@@ -4,6 +4,8 @@ A Stream Deck plugin that adds a button to safely eject all external disks on ma
 
 ## Features
 
+- **Real-time disk count monitoring** - Shows the number of attached external disks on the button icon
+- **Automatic updates** - Icon badge updates every 3 seconds when disks are mounted/unmounted
 - Single button to eject all external disks
 - Visual feedback for ejection status (normal, ejecting, success, error)
 - Customizable button title visibility
@@ -15,7 +17,8 @@ A Stream Deck plugin that adds a button to safely eject all external disks on ma
 
 - macOS 12 or later
 - Stream Deck 6.4 or later
-- Stream Deck Software
+- Stream Deck SDK 2.0 (beta)
+- Node.js 20 or later
 
 ## Installation
 
@@ -26,16 +29,20 @@ A Stream Deck plugin that adds a button to safely eject all external disks on ma
 ## Usage
 
 1. Drag the "Eject All Disks" action from the "Eject All Disks" category onto your Stream Deck
-2. Press the button to eject all external disks
-3. The button will display the ejection status visually
-4. Configure the button to show or hide the title text via Settings
+2. The button will automatically display the number of external disks currently attached (shown in a red badge in the top-right corner)
+3. The count updates automatically every 3 seconds as you mount/unmount disks
+4. Press the button to eject all external disks
+5. The button will display the ejection status visually
+6. Configure the button to show or hide the title text via Settings
 
 ### Button States
 
-- **Default**: Standard eject icon
+- **Default**: Standard eject icon with disk count badge (if disks are present)
 - **Ejecting**: Animated eject icon while process runs
 - **Success**: Green checkmark with eject icon
 - **Error**: Red X with eject icon
+
+The disk count badge appears as a red circle in the top-right corner of the icon, showing the number of external disks currently mounted.
 
 ### Settings
 
