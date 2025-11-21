@@ -9,15 +9,15 @@
  * @param {string} inInfo - Information about the action
  */
 function connectElgatoStreamDeckSocket(inPort, inPropertyInspectorUUID, inRegisterEvent, inInfo) {
-    // This function is called automatically by Stream Deck, don't rename it
-    // It's the entry point for property inspector JavaScript
-    
-    // Store the registration info in case we need it
-    if (typeof window.connectSocket === 'function') {
-        window.connectSocket(inPort, inPropertyInspectorUUID, inRegisterEvent, inInfo);
-    } else {
-        console.log('No connectSocket function found');
-    }
+	// This function is called automatically by Stream Deck, don't rename it
+	// It's the entry point for property inspector JavaScript
+
+	// Store the registration info in case we need it
+	if (typeof window.connectSocket === "function") {
+		window.connectSocket(inPort, inPropertyInspectorUUID, inRegisterEvent, inInfo);
+	} else {
+		console.log("No connectSocket function found");
+	}
 }
 
 /**
@@ -27,14 +27,14 @@ function connectElgatoStreamDeckSocket(inPort, inPropertyInspectorUUID, inRegist
  * @param {string} context - The context of the action
  */
 function saveSettings(settings, websocket, context) {
-    if (websocket && websocket.readyState === 1) {
-        const json = {
-            event: 'setSettings',
-            context: context,
-            payload: settings
-        };
-        websocket.send(JSON.stringify(json));
-    }
+	if (websocket && websocket.readyState === 1) {
+		const json = {
+			event: "setSettings",
+			context: context,
+			payload: settings,
+		};
+		websocket.send(JSON.stringify(json));
+	}
 }
 
 /**
@@ -43,13 +43,13 @@ function saveSettings(settings, websocket, context) {
  * @param {string} context - The context of the action
  */
 function requestGlobalSettings(websocket, context) {
-    if (websocket && websocket.readyState === 1) {
-        const json = {
-            event: 'getGlobalSettings',
-            context: context
-        };
-        websocket.send(JSON.stringify(json));
-    }
+	if (websocket && websocket.readyState === 1) {
+		const json = {
+			event: "getGlobalSettings",
+			context: context,
+		};
+		websocket.send(JSON.stringify(json));
+	}
 }
 
 /**
@@ -59,14 +59,14 @@ function requestGlobalSettings(websocket, context) {
  * @param {string} context - The context of the action
  */
 function saveGlobalSettings(settings, websocket, context) {
-    if (websocket && websocket.readyState === 1) {
-        const json = {
-            event: 'setGlobalSettings',
-            context: context,
-            payload: settings
-        };
-        websocket.send(JSON.stringify(json));
-    }
+	if (websocket && websocket.readyState === 1) {
+		const json = {
+			event: "setGlobalSettings",
+			context: context,
+			payload: settings,
+		};
+		websocket.send(JSON.stringify(json));
+	}
 }
 
 /**
@@ -77,15 +77,15 @@ function saveGlobalSettings(settings, websocket, context) {
  * @param {string} context - The context of the action
  */
 function sendToPlugin(action, data, websocket, context) {
-    if (websocket && websocket.readyState === 1) {
-        const json = {
-            action: action,
-            event: 'sendToPlugin',
-            context: context,
-            payload: data
-        };
-        websocket.send(JSON.stringify(json));
-    }
+	if (websocket && websocket.readyState === 1) {
+		const json = {
+			action: action,
+			event: "sendToPlugin",
+			context: context,
+			payload: data,
+		};
+		websocket.send(JSON.stringify(json));
+	}
 }
 
 // Export functions to global scope for use in HTML

@@ -10,7 +10,7 @@ const ejectAction = new EjectAllDisks();
 streamDeck.actions.registerAction(ejectAction);
 
 // Log that we're starting the plugin
-streamDeck.logger.info('Eject All Disks plugin initializing');
+streamDeck.logger.info("Eject All Disks plugin initializing");
 
 // Finally, connect to the Stream Deck.
 streamDeck.connect();

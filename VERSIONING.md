@@ -5,18 +5,22 @@
 This plugin uses **two version formats**:
 
 ### 1. StreamDeck Manifest (4-part version)
+
 **Location**: `org.deverman.ejectalldisks.sdPlugin/manifest.json`
+
 ```json
 "Version": "1.0.0.0"
 ```
 
 **Format**: `MAJOR.MINOR.PATCH.BUILD`
+
 - **MAJOR**: Breaking changes or major new features (1.0.0.0 → 2.0.0.0)
 - **MINOR**: New features, backwards compatible (1.0.0.0 → 1.1.0.0)
 - **PATCH**: Bug fixes, backwards compatible (1.0.0.0 → 1.0.1.0)
 - **BUILD**: Usually 0, can increment for quick patches (1.0.0.0 → 1.0.0.1)
 
 ### 2. Git Tags (semantic version)
+
 **Format**: `v1.0.0` (without the build number)
 
 This follows semantic versioning and is used for GitHub releases.
@@ -26,12 +30,14 @@ This follows semantic versioning and is used for GitHub releases.
 ### Step 1: Update Version Numbers
 
 **For version 1.0.0 release:**
+
 ```bash
 # Edit manifest.json - change "Version" from "0.1.0.0" to "1.0.0.0"
 # Optionally edit package.json to add matching version
 ```
 
 ### Step 2: Commit Version Bump
+
 ```bash
 git add org.deverman.ejectalldisks.sdPlugin/manifest.json
 git commit -m "Bump version to 1.0.0"
@@ -39,6 +45,7 @@ git push
 ```
 
 ### Step 3: Create Git Tag
+
 ```bash
 # Create annotated tag
 git tag -a v1.0.0 -m "Release version 1.0.0 - Initial release with disk counting"
@@ -50,6 +57,7 @@ git push origin v1.0.0
 ### Step 4: Create GitHub Release
 
 **Option A - Via GitHub Web UI:**
+
 1. Go to https://github.com/deverman/eject_all_disks_streamdeck/releases
 2. Click "Create a new release"
 3. Choose tag: `v1.0.0` (the tag you just pushed)
@@ -59,6 +67,7 @@ git push origin v1.0.0
 7. **GitHub Actions will automatically build and attach the plugin file!**
 
 **Option B - Via GitHub CLI:**
+
 ```bash
 gh release create v1.0.0 \
   --title "v1.0.0 - Initial Release" \
@@ -66,7 +75,9 @@ gh release create v1.0.0 \
 ```
 
 ### Step 5: Wait for GitHub Actions
+
 The workflow will automatically:
+
 - Build the plugin
 - Package it as `.streamDeckPlugin`
 - Attach it to the GitHub release
@@ -78,6 +89,7 @@ The workflow will automatically:
 ## What's New in v1.0.0
 
 ### Features
+
 - ✨ Real-time disk count monitoring with 3-second polling
 - 🔴 Visual badge showing number of attached external disks
 - ⚡ Automatic updates when disks are mounted/unmounted
@@ -85,10 +97,12 @@ The workflow will automatically:
 - ⚙️ Customizable button title display
 
 ### Technical
+
 - Upgraded to StreamDeck SDK 2.0 beta
 - Requires macOS 12+, Stream Deck 6.4+, Node.js 20+
 
 ### Installation
+
 Download `org.deverman.ejectalldisks.streamDeckPlugin` and double-click to install.
 
 **Full Changelog**: https://github.com/deverman/eject_all_disks_streamdeck/compare/v0.1.0...v1.0.0
@@ -97,9 +111,11 @@ Download `org.deverman.ejectalldisks.streamDeckPlugin` and double-click to insta
 ## Version History Examples
 
 ### Initial Release (1.0.0)
+
 Your first public release with all core features working.
 
 ### Feature Release (1.1.0)
+
 ```bash
 # Update manifest.json: "0.1.0.0" → "1.1.0.0"
 git commit -m "Bump version to 1.1.0"
@@ -109,22 +125,27 @@ git push origin v1.1.0
 ```
 
 Release notes:
+
 ```markdown
 ## What's New in v1.1.0
 
 ### New Features
+
 - Added settings panel for customization
 - New option to change badge color
 
 ### Improvements
+
 - Reduced polling interval from 3s to 2s
 - Better error messages
 
 ### Bug Fixes
+
 - Fixed issue where badge wouldn't update after sleep
 ```
 
 ### Bug Fix Release (1.0.1)
+
 ```bash
 # Update manifest.json: "1.0.0.0" → "1.0.1.0"
 git commit -m "Bump version to 1.0.1"
@@ -134,10 +155,12 @@ git push origin v1.0.1
 ```
 
 Release notes:
+
 ```markdown
 ## What's New in v1.0.1
 
 ### Bug Fixes
+
 - Fixed timeout cleanup bug causing memory leak
 - Fixed badge not disappearing when all disks ejected
 
@@ -145,6 +168,7 @@ No new features - upgrade recommended for stability.
 ```
 
 ### Major Release (2.0.0)
+
 ```bash
 # Update manifest.json: "1.5.0.0" → "2.0.0.0"
 git commit -m "Bump version to 2.0.0"
@@ -154,31 +178,35 @@ git push origin v2.0.0
 ```
 
 Release notes:
+
 ```markdown
 ## What's New in v2.0.0
 
 ### ⚠️ Breaking Changes
+
 - Requires macOS 13+ (dropped support for macOS 12)
 - Requires Stream Deck 7.0+
 
 ### New Features
+
 - Complete UI redesign
 - Support for network drives
 - Multi-device support
 
 ### Migration Guide
+
 Users on macOS 12 should stay on v1.x releases.
 ```
 
 ## Quick Reference
 
-| Change Type | Old Version | New Version | Tag |
-|-------------|-------------|-------------|-----|
-| Initial release | 0.1.0.0 | 1.0.0.0 | v1.0.0 |
-| Add feature | 1.0.0.0 | 1.1.0.0 | v1.1.0 |
-| Bug fix | 1.0.0.0 | 1.0.1.0 | v1.0.1 |
-| Major change | 1.9.0.0 | 2.0.0.0 | v2.0.0 |
-| Hotfix | 1.0.1.0 | 1.0.1.1 | v1.0.1.1 |
+| Change Type     | Old Version | New Version | Tag      |
+| --------------- | ----------- | ----------- | -------- |
+| Initial release | 0.1.0.0     | 1.0.0.0     | v1.0.0   |
+| Add feature     | 1.0.0.0     | 1.1.0.0     | v1.1.0   |
+| Bug fix         | 1.0.0.0     | 1.0.1.0     | v1.0.1   |
+| Major change    | 1.9.0.0     | 2.0.0.0     | v2.0.0   |
+| Hotfix          | 1.0.1.0     | 1.0.1.1     | v1.0.1.1 |
 
 ## Automation Script
 
@@ -212,11 +240,13 @@ echo "5. Create GitHub release at: https://github.com/deverman/eject_all_disks_s
 ```
 
 Make executable:
+
 ```bash
 chmod +x scripts/bump-version.sh
 ```
 
 Usage:
+
 ```bash
 ./scripts/bump-version.sh 1.0.0
 ```

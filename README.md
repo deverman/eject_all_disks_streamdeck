@@ -47,11 +47,13 @@ The disk count badge appears as a red circle in the top-right corner of the icon
 ### Settings
 
 In the Stream Deck button configuration:
+
 - **Show Title**: Toggle to show/hide the "Eject All Disks" text on the button
 
 ## Security
 
 This plugin:
+
 - Only ejects external disks (not internal drives)
 - Uses macOS's built-in `diskutil` command with validation
 - Validates disk paths before ejection
@@ -85,17 +87,20 @@ eject_all_disks_streamdeck/
 ### Building the Plugin
 
 1. Clone the repository:
+
 ```bash
 git clone https://github.com/brentdeverman/eject-all-disks-streamdeck.git
 cd eject-all-disks-streamdeck
 ```
 
 2. Install dependencies:
+
 ```bash
 npm install
 ```
 
 3. Build the TypeScript code:
+
 ```bash
 npm run build
 ```
@@ -143,12 +148,14 @@ npm run watch
 ```
 
 This command:
+
 - ✅ Watches `src/` directory for TypeScript changes
 - ✅ Automatically rebuilds on file changes
 - ✅ Restarts the plugin in Stream Deck automatically
 - ✅ Updates when `manifest.json` changes
 
 **While watch mode is running:**
+
 1. Edit files in `src/`
 2. Save your changes
 3. Plugin automatically rebuilds and restarts
@@ -161,18 +168,21 @@ This command:
 To see plugin output and debug messages:
 
 **Method 1: Stream Deck Log File**
+
 ```bash
 # macOS - View live logs
 tail -f ~/Library/Logs/com.elgato.StreamDeck/StreamDeck0.log
 ```
 
 **Method 2: Stream Deck App**
+
 1. Open Stream Deck application
 2. Go to Preferences → Advanced
 3. Click "Open Plugin Log Folder"
 4. Open the latest log file
 
 **Method 3: Console.app**
+
 1. Open Console.app (Applications → Utilities)
 2. Search for "StreamDeck" or "Eject All Disks"
 3. View real-time logs
@@ -180,6 +190,7 @@ tail -f ~/Library/Logs/com.elgato.StreamDeck/StreamDeck0.log
 #### What to Look For in Logs
 
 The plugin outputs these key messages:
+
 ```
 Eject All Disks plugin initializing
 Disk count changed to: 2
@@ -191,83 +202,90 @@ Error counting disks: [error details]
 #### Testing the Disk Count Feature
 
 1. **Add the button to Stream Deck:**
-   - Drag "Eject All Disks" from the actions panel to a key
+    - Drag "Eject All Disks" from the actions panel to a key
 
 2. **Mount external disks:**
-   - Connect a USB drive or mount a disk image
-   - Wait up to 3 seconds for the badge to appear
+    - Connect a USB drive or mount a disk image
+    - Wait up to 3 seconds for the badge to appear
 
 3. **Watch the counter update:**
-   - Mount more disks → badge shows increasing count
-   - Eject disks via Finder → badge decreases
-   - All disks ejected → badge disappears
+    - Mount more disks → badge shows increasing count
+    - Eject disks via Finder → badge decreases
+    - All disks ejected → badge disappears
 
 4. **Test ejection:**
-   - Press the Stream Deck button
-   - Icon shows animated "Ejecting..." state
-   - Success: Green checkmark appears
-   - Error: Red X appears with alert
+    - Press the Stream Deck button
+    - Icon shows animated "Ejecting..." state
+    - Success: Green checkmark appears
+    - Error: Red X appears with alert
 
 5. **Check logs for errors:**
-   ```bash
-   tail -f ~/Library/Logs/com.elgato.StreamDeck/StreamDeck0.log | grep -i "eject"
-   ```
+    ```bash
+    tail -f ~/Library/Logs/com.elgato.StreamDeck/StreamDeck0.log | grep -i "eject"
+    ```
 
 #### Development Tips
 
 1. **Enable Debug Mode:**
    The plugin has debug logging enabled in `manifest.json`:
-   ```json
-   "Nodejs": {
-     "Version": "20",
-     "Debug": "enabled"
-   }
-   ```
+
+    ```json
+    "Nodejs": {
+      "Version": "20",
+      "Debug": "enabled"
+    }
+    ```
 
 2. **Quick Restart:**
-   ```bash
-   npx streamdeck restart org.deverman.ejectalldisks
-   ```
+
+    ```bash
+    npx streamdeck restart org.deverman.ejectalldisks
+    ```
 
 3. **Force Reload Stream Deck:**
    If changes aren't appearing, restart Stream Deck:
-   - Quit Stream Deck completely
-   - Reopen Stream Deck
-   - Plugin loads with fresh code
+    - Quit Stream Deck completely
+    - Reopen Stream Deck
+    - Plugin loads with fresh code
 
 4. **Validate Plugin Structure:**
-   ```bash
-   npx streamdeck validate org.deverman.ejectalldisks.sdPlugin
-   ```
+
+    ```bash
+    npx streamdeck validate org.deverman.ejectalldisks.sdPlugin
+    ```
 
 5. **Manual Disk Count Test:**
    Test the disk counting command directly:
-   ```bash
-   diskutil list external | grep -o -E '/dev/disk[0-9]+' | sort -u
-   ```
-   The output should match what appears on your Stream Deck button.
+    ```bash
+    diskutil list external | grep -o -E '/dev/disk[0-9]+' | sort -u
+    ```
+    The output should match what appears on your Stream Deck button.
 
 #### Common Development Issues
 
 **Plugin doesn't appear in Stream Deck:**
+
 - Run `npx streamdeck link` again
 - Restart Stream Deck application completely
 - Check that `manifest.json` has correct UUID and paths
 - Verify `bin/plugin.js` exists after building
 
 **Changes not reflecting:**
+
 - Make sure you ran `npm run build`
 - If using watch mode, check that it's still running
 - Try `npx streamdeck restart org.deverman.ejectalldisks`
 - Quit and reopen Stream Deck
 
 **Disk count not updating:**
+
 - Check logs for "Error counting disks" messages
 - Verify you have external disks mounted (not internal)
 - Test the diskutil command manually
 - Make sure the action is visible on your Stream Deck (monitoring stops when hidden)
 
 **Build errors:**
+
 - Delete `node_modules` and `package-lock.json`
 - Run `npm install` again
 - Make sure you're using Node.js 20 or later: `node --version`
@@ -292,7 +310,9 @@ The packaged file will be in `dist/org.deverman.ejectalldisks.streamDeckPlugin`.
 ### Implementation Details
 
 #### SVG Icons
+
 The plugin uses SVG icons for dynamic rendering with different states:
+
 - Normal state: Orange eject icon
 - Ejecting state: Animated yellow eject icon
 - Success state: Green eject icon with checkmark
@@ -301,14 +321,18 @@ The plugin uses SVG icons for dynamic rendering with different states:
 Each icon includes a semi-transparent background for better text contrast.
 
 #### Settings Implementation
+
 Settings are implemented using:
+
 - TypeScript interface for type safety
 - Default values to handle initialization
 - Property Inspector for UI controls
 - WebSocket communication between UI and plugin
 
 #### Shell Command
+
 The plugin uses a secure shell command to safely eject disks:
+
 ```bash
 IFS=$'\n'
 disks=$(diskutil list external | grep -o -E '/dev/disk[0-9]+')
@@ -329,13 +353,13 @@ This implementation includes security measures like path validation and proper e
 ### Common Issues
 
 1. **Button shows error state:**
-   - Ensure disks aren't currently in use by applications
-   - Check for file operations in progress
-   - Try ejecting through Finder first to see specific error messages
+    - Ensure disks aren't currently in use by applications
+    - Check for file operations in progress
+    - Try ejecting through Finder first to see specific error messages
 
 2. **Settings not saving:**
-   - Restart Stream Deck software
-   - Check permissions
+    - Restart Stream Deck software
+    - Check permissions
 
 ## License
 
@@ -348,12 +372,13 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## Support
 
 If you encounter any issues:
+
 1. Check the [Issues]((https://github.com/deverman/eject_all_disks_streamdeck/issues) page
 2. File a new issue with:
-   - macOS version
-   - Stream Deck software version
-   - Steps to reproduce
-   - Error messages if any
+    - macOS version
+    - Stream Deck software version
+    - Steps to reproduce
+    - Error messages if any
 
 ## Credits
 
