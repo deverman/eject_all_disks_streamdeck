@@ -1,20 +1,82 @@
-            - name: streamdeck cli pack
-  # You may pin to the exact commit or the version.
-  # uses: neilenns/streamdeck-cli-pack@db4f83e69f7264b7d2ca6eb4deebc849c5bb0154
-  uses: neilenns/streamdeck-cli-pack@v1.2.8
-  with:
-    # The path to the plugin to pack. Optional. If omitted the first directory in the working directory ending in .sdPlugin is used.
-    path: # optional
-    # The path to save the packed plugin to. Optional. If omitted the plugin is saved to the working directory.
-    outputPath: dist/ # optional
-    # If true, overwites a package if it exists.
-    force: true # optional
-    # The version for the plugin. Optional. If omitted the version tag for the GitHub release is used. If no version tag is available the run number is used.
-    version: # optional
-    # If true, generates a report without creating a package.
-    dryRun: # optional
-    # If true, forces an update check for new validation rules. Cannot be used in conjunction with noUpdateCheck.
-    forceUpdateCheck: # optional
-    # If true, prevents an update check of new validation rules. Cannot be used in conjunction with forceUpdateCheck.
-    noUpdateCheck: # optional
-          
+name: Build and Package Plugin
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  release:
+    types: [ created ]
+
+jobs:
+  build-and-package:
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Lint check
+      run: npm run lint:check
+      continue-on-error: true
+
+    - name: Build plugin
+      run: npm run build
+
+    - name: Verify build output
+      run: |
+        if [ ! -f "org.deverman.ejectalldisks.sdPlugin/bin/plugin.js" ]; then
+          echo "Error: plugin.js not found after build"
+          exit 1
+        fi
+        echo "Build output verified successfully"
+
+    - name: Install StreamDeck CLI
+      run: npm install -g @elgato/cli
+
+    - name: Validate plugin
+      run: npx streamdeck validate org.deverman.ejectalldisks.sdPlugin || true
+      continue-on-error: true
+
+    - name: Package plugin
+      run: |
+        mkdir -p dist
+        cd org.deverman.ejectalldisks.sdPlugin
+        zip -r ../dist/org.deverman.ejectalldisks.streamDeckPlugin . -x "*.DS_Store"
+        cd ..
+
+    - name: Verify package
+      run: |
+        if [ ! -f "dist/org.deverman.ejectalldisks.streamDeckPlugin" ]; then
+          echo "Error: Package file not found"
+          exit 1
+        fi
+        ls -lh dist/org.deverman.ejectalldisks.streamDeckPlugin
+        echo "Package created successfully"
+
+    - name: Upload plugin artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: streamdeck-plugin
+        path: dist/org.deverman.ejectalldisks.streamDeckPlugin
+        retention-days: 30
+
+    - name: Upload to release
+      if: github.event_name == 'release'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: ./dist/org.deverman.ejectalldisks.streamDeckPlugin
+        asset_name: org.deverman.ejectalldisks.streamDeckPlugin
+        asset_content_type: application/zip
