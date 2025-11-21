@@ -100,19 +100,194 @@ npm install
 npm run build
 ```
 
-4. Create icons and resources:
-   - SVG icons in the appropriate directories
-   - Property inspector HTML
-   - Update manifest.json
+This compiles the TypeScript source files from `src/` into JavaScript in `org.deverman.ejectalldisks.sdPlugin/bin/`.
 
-5. Pack the plugin:
+### Testing and Development
+
+#### Quick Start - Testing in Stream Deck
+
+**Option 1: Link for Development (Recommended)**
+
 ```bash
-# Create dist directory if it doesn't exist
-mkdir -p dist
+# 1. Build the plugin first
+npm run build
 
-# Pack the plugin
-streamdeck pack org.deverman.ejectalldisks.sdPlugin --output dist
+# 2. Link the plugin to Stream Deck
+npx streamdeck link
+
+# 3. Restart Stream Deck application
+# The plugin should now appear in Stream Deck
 ```
+
+The `link` command creates a symlink so Stream Deck loads your plugin directly from the development directory.
+
+**Option 2: Install the Package**
+
+```bash
+# Build and package
+npm run build
+cd org.deverman.ejectalldisks.sdPlugin
+zip -r ../dist/org.deverman.ejectalldisks.streamDeckPlugin . -x "*.DS_Store"
+cd ..
+
+# Double-click the .streamDeckPlugin file to install
+open dist/org.deverman.ejectalldisks.streamDeckPlugin
+```
+
+#### Live Development with Watch Mode
+
+For active development with automatic reloading:
+
+```bash
+npm run watch
+```
+
+This command:
+- ✅ Watches `src/` directory for TypeScript changes
+- ✅ Automatically rebuilds on file changes
+- ✅ Restarts the plugin in Stream Deck automatically
+- ✅ Updates when `manifest.json` changes
+
+**While watch mode is running:**
+1. Edit files in `src/`
+2. Save your changes
+3. Plugin automatically rebuilds and restarts
+4. Changes appear in Stream Deck within seconds
+
+**To stop watch mode:** Press `Ctrl + C`
+
+#### Viewing Plugin Logs
+
+To see plugin output and debug messages:
+
+**Method 1: Stream Deck Log File**
+```bash
+# macOS - View live logs
+tail -f ~/Library/Logs/com.elgato.StreamDeck/StreamDeck0.log
+```
+
+**Method 2: Stream Deck App**
+1. Open Stream Deck application
+2. Go to Preferences → Advanced
+3. Click "Open Plugin Log Folder"
+4. Open the latest log file
+
+**Method 3: Console.app**
+1. Open Console.app (Applications → Utilities)
+2. Search for "StreamDeck" or "Eject All Disks"
+3. View real-time logs
+
+#### What to Look For in Logs
+
+The plugin outputs these key messages:
+```
+Eject All Disks plugin initializing
+Disk count changed to: 2
+Ejecting disks...
+Disks ejected: [output]
+Error counting disks: [error details]
+```
+
+#### Testing the Disk Count Feature
+
+1. **Add the button to Stream Deck:**
+   - Drag "Eject All Disks" from the actions panel to a key
+
+2. **Mount external disks:**
+   - Connect a USB drive or mount a disk image
+   - Wait up to 3 seconds for the badge to appear
+
+3. **Watch the counter update:**
+   - Mount more disks → badge shows increasing count
+   - Eject disks via Finder → badge decreases
+   - All disks ejected → badge disappears
+
+4. **Test ejection:**
+   - Press the Stream Deck button
+   - Icon shows animated "Ejecting..." state
+   - Success: Green checkmark appears
+   - Error: Red X appears with alert
+
+5. **Check logs for errors:**
+   ```bash
+   tail -f ~/Library/Logs/com.elgato.StreamDeck/StreamDeck0.log | grep -i "eject"
+   ```
+
+#### Development Tips
+
+1. **Enable Debug Mode:**
+   The plugin has debug logging enabled in `manifest.json`:
+   ```json
+   "Nodejs": {
+     "Version": "20",
+     "Debug": "enabled"
+   }
+   ```
+
+2. **Quick Restart:**
+   ```bash
+   npx streamdeck restart org.deverman.ejectalldisks
+   ```
+
+3. **Force Reload Stream Deck:**
+   If changes aren't appearing, restart Stream Deck:
+   - Quit Stream Deck completely
+   - Reopen Stream Deck
+   - Plugin loads with fresh code
+
+4. **Validate Plugin Structure:**
+   ```bash
+   npx streamdeck validate org.deverman.ejectalldisks.sdPlugin
+   ```
+
+5. **Manual Disk Count Test:**
+   Test the disk counting command directly:
+   ```bash
+   diskutil list external | grep -o -E '/dev/disk[0-9]+' | sort -u
+   ```
+   The output should match what appears on your Stream Deck button.
+
+#### Common Development Issues
+
+**Plugin doesn't appear in Stream Deck:**
+- Run `npx streamdeck link` again
+- Restart Stream Deck application completely
+- Check that `manifest.json` has correct UUID and paths
+- Verify `bin/plugin.js` exists after building
+
+**Changes not reflecting:**
+- Make sure you ran `npm run build`
+- If using watch mode, check that it's still running
+- Try `npx streamdeck restart org.deverman.ejectalldisks`
+- Quit and reopen Stream Deck
+
+**Disk count not updating:**
+- Check logs for "Error counting disks" messages
+- Verify you have external disks mounted (not internal)
+- Test the diskutil command manually
+- Make sure the action is visible on your Stream Deck (monitoring stops when hidden)
+
+**Build errors:**
+- Delete `node_modules` and `package-lock.json`
+- Run `npm install` again
+- Make sure you're using Node.js 20 or later: `node --version`
+
+### Packaging for Distribution
+
+To create a `.streamDeckPlugin` file for distribution:
+
+```bash
+# Method 1: Using StreamDeck CLI (if available)
+npx streamdeck pack org.deverman.ejectalldisks.sdPlugin --output dist
+
+# Method 2: Manual packaging
+mkdir -p dist
+cd org.deverman.ejectalldisks.sdPlugin
+zip -r ../dist/org.deverman.ejectalldisks.streamDeckPlugin . -x "*.DS_Store"
+cd ..
+```
+
+The packaged file will be in `dist/org.deverman.ejectalldisks.streamDeckPlugin`.
 
 ### Implementation Details
 
