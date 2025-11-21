@@ -4,6 +4,7 @@ import streamDeck, {
   KeyDownEvent,
   SingletonAction,
   WillAppearEvent,
+  WillDisappearEvent,
   Action,
   SendToPluginEvent,
   Target,
@@ -21,11 +22,11 @@ export class EjectAllDisks extends SingletonAction {
   // Track timeouts for cleanup
   private timeouts: Set<NodeJS.Timeout> = new Set();
 
-  // Track disk count monitoring interval
-  private monitoringInterval: NodeJS.Timeout | null = null;
+  // Track disk count monitoring intervals per action (keyed by action ID)
+  private monitoringIntervals: Map<string, NodeJS.Timeout> = new Map();
 
-  // Store current disk count
-  private currentDiskCount: number = 0;
+  // Store current disk count per action (keyed by action ID)
+  private diskCounts: Map<string, number> = new Map();
 
   // Cleanup timeouts
   private clearTimeouts(): void {
@@ -33,17 +34,26 @@ export class EjectAllDisks extends SingletonAction {
     this.timeouts.clear();
   }
 
-  // Cleanup monitoring interval
-  private stopMonitoring(): void {
-    if (this.monitoringInterval) {
-      clearInterval(this.monitoringInterval);
-      this.monitoringInterval = null;
+  // Cleanup monitoring interval for a specific action
+  private stopMonitoring(actionId: string): void {
+    const interval = this.monitoringIntervals.get(actionId);
+    if (interval) {
+      clearInterval(interval);
+      this.monitoringIntervals.delete(actionId);
+      this.diskCounts.delete(actionId);
     }
   }
 
-  override onWillDisappear(): void {
+  // Cleanup all monitoring intervals
+  private stopAllMonitoring(): void {
+    this.monitoringIntervals.forEach((interval) => clearInterval(interval));
+    this.monitoringIntervals.clear();
+    this.diskCounts.clear();
+  }
+
+  override onWillDisappear(ev: WillDisappearEvent): void {
     this.clearTimeouts();
-    this.stopMonitoring();
+    this.stopMonitoring(ev.action.id);
   }
   /**
    * Gets the list of ejectible external volumes (what user sees in Finder)
@@ -249,15 +259,16 @@ export class EjectAllDisks extends SingletonAction {
   }
   
   /**
-   * Updates the disk count display
+   * Updates the disk count display for a specific action
    */
   private async updateDiskCount(action: Action): Promise<void> {
     const newCount = await this.getDiskCount();
+    const currentCount = this.diskCounts.get(action.id) ?? -1;
 
     // Only update if the count has changed
-    if (newCount !== this.currentDiskCount) {
-      this.currentDiskCount = newCount;
-      streamDeck.logger.info(`Disk count changed to: ${newCount}`);
+    if (newCount !== currentCount) {
+      this.diskCounts.set(action.id, newCount);
+      streamDeck.logger.info(`Disk count changed to: ${newCount} for action ${action.id}`);
 
       // Update the icon with the new count
       await (action as any).setImage(`data:image/svg+xml,${encodeURIComponent(this.createNormalSvg(newCount))}`, {
@@ -267,19 +278,21 @@ export class EjectAllDisks extends SingletonAction {
   }
 
   /**
-   * Starts monitoring disk count
+   * Starts monitoring disk count for a specific action
    */
   private async startMonitoring(action: Action): Promise<void> {
-    // Stop any existing monitoring
-    this.stopMonitoring();
+    // Stop any existing monitoring for this specific action
+    this.stopMonitoring(action.id);
 
     // Initial count update
     await this.updateDiskCount(action);
 
     // Check disk count every 3 seconds
-    this.monitoringInterval = setInterval(async () => {
+    const interval = setInterval(async () => {
       await this.updateDiskCount(action);
     }, 3000);
+
+    this.monitoringIntervals.set(action.id, interval);
   }
 
   /**
@@ -360,23 +373,46 @@ export class EjectAllDisks extends SingletonAction {
         return;
       }
 
-      // Script to eject each volume by name
-      // Uses diskutil eject which safely unmounts and ejects the volume
+      // Script to eject volumes in PARALLEL for maximum performance
+      // Uses diskutil eject with background processes (&) and wait
       const volumeList = volumes.map(v => `"${v.replace(/"/g, '\\"')}"`).join(' ');
       const script = `
+        # Create temp files for collecting results from parallel processes
+        tmpdir=$(mktemp -d)
+        trap "rm -rf $tmpdir" EXIT
+
+        # Launch all eject commands in parallel
+        pids=""
+        i=0
+        for volume in ${volumeList}; do
+          (
+            # Check if volume still exists before ejecting
+            if [ -d "/Volumes/$volume" ]; then
+              output=$(diskutil eject "/Volumes/$volume" 2>&1)
+              if [ $? -eq 0 ]; then
+                echo "$output" > "$tmpdir/success_$i"
+              else
+                echo "$output" > "$tmpdir/error_$i"
+              fi
+            fi
+          ) &
+          pids="$pids $!"
+          i=$((i + 1))
+        done
+
+        # Wait for all background processes to complete
+        wait $pids
+
+        # Collect results
         results=""
         errors=""
-        for volume in ${volumeList}; do
-          # Check if volume still exists before ejecting
-          if [ -d "/Volumes/$volume" ]; then
-            output=$(diskutil eject "/Volumes/$volume" 2>&1)
-            if [ $? -eq 0 ]; then
-              results="$results$output\\n"
-            else
-              errors="$errors$output\\n"
-            fi
-          fi
+        for f in "$tmpdir"/success_*; do
+          [ -f "$f" ] && results="$results$(cat "$f")\\n"
         done
+        for f in "$tmpdir"/error_*; do
+          [ -f "$f" ] && errors="$errors$(cat "$f")\\n"
+        done
+
         if [ -n "$errors" ]; then
           echo "$errors" >&2
         fi
