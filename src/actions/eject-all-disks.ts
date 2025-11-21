@@ -46,23 +46,41 @@ export class EjectAllDisks extends SingletonAction {
     this.stopMonitoring();
   }
   /**
-   * Gets the count of external disks
-   * @returns Promise that resolves to the number of external disks
+   * Gets the list of ejectible external volumes (what user sees in Finder)
+   * Excludes: Macintosh HD, hidden volumes, Time Machine, simulators, network mounts
+   * @returns Promise that resolves to array of volume names
    */
-  private async getDiskCount(): Promise<number> {
+  private async getEjectibleVolumes(): Promise<string[]> {
     try {
       const execPromise = promisify(exec);
+
+      // List volumes and filter out system/hidden volumes
+      // Excludes:
+      // - Macintosh HD (internal drive)
+      // - Hidden volumes (starting with .)
+      // - Time Machine volumes (com.apple.TimeMachine*, Backups of *)
+      // - We also check if it's a local mount (not network)
       const { stdout } = await execPromise(
-        'diskutil list external | grep -o -E \'/dev/disk[0-9]+\' | sort -u',
+        `ls /Volumes/ 2>/dev/null | grep -Ev "^(Macintosh HD|\\..*|com\\.apple\\..*|Backups of .*)$"`,
         { shell: '/bin/bash' }
       );
 
-      const disks = stdout.trim().split('\n').filter(line => line.length > 0);
-      return disks.length;
+      const volumes = stdout.trim().split('\n').filter(line => line.length > 0);
+      return volumes;
     } catch (error) {
-      streamDeck.logger.error(`Error counting disks: ${error}`);
-      return 0;
+      // grep returns exit code 1 if no matches found, which is not an error
+      streamDeck.logger.info(`No ejectible volumes found or error: ${error}`);
+      return [];
     }
+  }
+
+  /**
+   * Gets the count of ejectible external volumes
+   * @returns Promise that resolves to the number of ejectible volumes
+   */
+  private async getDiskCount(): Promise<number> {
+    const volumes = await this.getEjectibleVolumes();
+    return volumes.length;
   }
 
   /**
@@ -314,21 +332,57 @@ export class EjectAllDisks extends SingletonAction {
     
     try {
       const execPromise = promisify(exec);
-      
-      // Script to eject all external disks
+
+      // Get the list of ejectible volumes first
+      const volumes = await this.getEjectibleVolumes();
+
+      if (volumes.length === 0) {
+        streamDeck.logger.info("No volumes to eject");
+        // Show success since there's nothing to eject
+        await ev.action.setImage(`data:image/svg+xml,${encodeURIComponent(this.createSuccessSvg())}`, {
+          target: Target.HardwareAndSoftware
+        });
+        await (ev.action as any).setTitle(showTitle ? "No Disks" : "", {
+          target: Target.HardwareAndSoftware
+        });
+        await ev.action.showOk();
+
+        const timeout = setTimeout(async () => {
+          await this.updateDiskCount(ev.action);
+          const finalSettings = await ev.action.getSettings() as EjectSettings;
+          const showFinalTitle = finalSettings?.showTitle !== false;
+          await (ev.action as any).setTitle(showFinalTitle ? "Eject All\nDisks" : "", {
+            target: Target.HardwareAndSoftware
+          });
+          this.timeouts.delete(timeout);
+        }, 2000);
+        this.timeouts.add(timeout);
+        return;
+      }
+
+      // Script to eject each volume by name
+      // Uses diskutil eject which safely unmounts and ejects the volume
+      const volumeList = volumes.map(v => `"${v.replace(/"/g, '\\"')}"`).join(' ');
       const script = `
-        IFS=$'\n'
-        disks=$(diskutil list external | grep -o -E '/dev/disk[0-9]+')
-        for disk in $disks; do
-          # Validate disk path format for security
-          if [[ "$disk" =~ ^/dev/disk[0-9]+$ ]]; then
-            diskutil unmountDisk "$disk"
-          else
-            echo "Invalid disk path: $disk" >&2
+        results=""
+        errors=""
+        for volume in ${volumeList}; do
+          # Check if volume still exists before ejecting
+          if [ -d "/Volumes/$volume" ]; then
+            output=$(diskutil eject "/Volumes/$volume" 2>&1)
+            if [ $? -eq 0 ]; then
+              results="$results$output\\n"
+            else
+              errors="$errors$output\\n"
+            fi
           fi
         done
+        if [ -n "$errors" ]; then
+          echo "$errors" >&2
+        fi
+        echo "$results"
       `;
-      
+
       const { stdout, stderr } = await execPromise(script, { shell: '/bin/bash' });
       
       if (stderr) {
