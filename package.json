@@ -1,9 +1,13 @@
 {
+  "name": "eject-all-disks-streamdeck",
+  "version": "0.1.0",
+  "description": "Stream Deck plugin to eject all external disks on macOS",
   "scripts": {
     "lint:check": "prettier . --check",
     "build": "rollup -c",
     "watch": "rollup -c -w --watch.onEnd=\"streamdeck restart org.deverman.ejectalldisks\"",
-    "lint:fix": "prettier . --write"
+    "lint:fix": "prettier . --write",
+    "version:bump": "bash scripts/bump-version.sh"
   },
   "type": "module",
   "devDependencies": {
