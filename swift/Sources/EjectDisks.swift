@@ -38,6 +38,14 @@ struct EjectOutput: Codable, Sendable {
     let totalDuration: Double
 }
 
+struct BenchmarkOutput: Codable, Sendable {
+    let enumerationTime: Double
+    let volumeCount: Int
+    let swiftEjectTime: Double?
+    let diskutilEjectTime: Double?
+    let speedup: Double?
+}
+
 // MARK: - Volume Discovery
 
 /// Get list of ejectable volumes (matching what Finder shows)
@@ -56,7 +64,7 @@ func getEjectableVolumes() -> [VolumeInfo] {
         "Recovery",
         "Preboot",
         "VM",
-        "Update"
+        "Update",
     ]
 
     var volumes: [VolumeInfo] = []
@@ -87,15 +95,19 @@ func getEjectableVolumes() -> [VolumeInfo] {
         // Verify it's a mount point and is ejectable
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
-              isDirectory.boolValue else {
+            isDirectory.boolValue
+        else {
             continue
         }
 
         // Check if volume is ejectable using URL resource values
         let url = URL(fileURLWithPath: path)
-        if let resourceValues = try? url.resourceValues(forKeys: [.volumeIsEjectableKey, .volumeIsRemovableKey]),
-           let isEjectable = resourceValues.volumeIsEjectable,
-           let isRemovable = resourceValues.volumeIsRemovable {
+        if let resourceValues = try? url.resourceValues(forKeys: [
+            .volumeIsEjectableKey, .volumeIsRemovableKey,
+        ]),
+            let isEjectable = resourceValues.volumeIsEjectable,
+            let isRemovable = resourceValues.volumeIsRemovable
+        {
             // Include if ejectable OR removable (external drives)
             if !isEjectable && !isRemovable {
                 continue
@@ -105,8 +117,9 @@ func getEjectableVolumes() -> [VolumeInfo] {
         // Get BSD name if available (for informational purposes)
         var bsdName: String? = nil
         if let session = DASessionCreate(kCFAllocatorDefault),
-           let disk = DADiskCreateFromVolumePath(kCFAllocatorDefault, session, url as CFURL),
-           let bsdNameCStr = DADiskGetBSDName(disk) {
+            let disk = DADiskCreateFromVolumePath(kCFAllocatorDefault, session, url as CFURL),
+            let bsdNameCStr = DADiskGetBSDName(disk)
+        {
             bsdName = String(cString: bsdNameCStr)
         }
 
@@ -118,18 +131,45 @@ func getEjectableVolumes() -> [VolumeInfo] {
 
 // MARK: - Disk Ejection (Swift 6 Concurrency)
 
-/// Eject a single volume using NSWorkspace
-/// This is the most reliable method and works well with Swift concurrency
-func ejectVolume(path: String) async -> (success: Bool, error: String?) {
-    // NSWorkspace operations need to run on main actor for safety
-    await MainActor.run {
-        let url = URL(fileURLWithPath: path)
-        do {
-            try NSWorkspace.shared.unmountAndEjectDevice(at: url)
-            return (true, nil)
-        } catch {
-            return (false, error.localizedDescription)
+/// Eject a single volume using NSWorkspace (synchronous, for use in concurrent context)
+/// Using nonisolated to allow true parallel execution
+nonisolated func ejectVolumeSyncUnsafe(path: String) -> (success: Bool, error: String?) {
+    let url = URL(fileURLWithPath: path)
+    do {
+        // NSWorkspace.shared is thread-safe for this operation
+        try NSWorkspace.shared.unmountAndEjectDevice(at: url)
+        return (true, nil)
+    } catch {
+        return (false, error.localizedDescription)
+    }
+}
+
+/// Eject a single volume using diskutil (for benchmarking comparison)
+func ejectVolumeWithDiskutil(path: String) -> (success: Bool, error: String?, duration: Double) {
+    let startTime = Date()
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
+    process.arguments = ["eject", path]
+
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = pipe
+
+    do {
+        try process.run()
+        process.waitUntilExit()
+        let duration = Date().timeIntervalSince(startTime)
+
+        if process.terminationStatus == 0 {
+            return (true, nil, duration)
+        } else {
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8) ?? "Unknown error"
+            return (false, output, duration)
         }
+    } catch {
+        let duration = Date().timeIntervalSince(startTime)
+        return (false, error.localizedDescription, duration)
     }
 }
 
@@ -147,14 +187,61 @@ func ejectAllVolumes(volumes: [VolumeInfo], force: Bool = false) async -> EjectO
         )
     }
 
-    // Use TaskGroup for parallel ejection
+    // Use TaskGroup for parallel ejection with true concurrency
     let results = await withTaskGroup(of: EjectResult.self, returning: [EjectResult].self) { group in
         for volume in volumes {
             group.addTask {
                 let volumeStartTime = Date()
-                let (success, error) = await ejectVolume(path: volume.path)
+                // Use the nonisolated sync version for true parallelism
+                let (success, error) = ejectVolumeSyncUnsafe(path: volume.path)
                 let duration = Date().timeIntervalSince(volumeStartTime)
 
+                return EjectResult(
+                    volume: volume.name,
+                    success: success,
+                    error: error,
+                    duration: duration
+                )
+            }
+        }
+
+        var collectedResults: [EjectResult] = []
+        for await result in group {
+            collectedResults.append(result)
+        }
+        return collectedResults
+    }
+
+    let totalDuration = Date().timeIntervalSince(startTime)
+    let successCount = results.filter { $0.success }.count
+
+    return EjectOutput(
+        totalCount: volumes.count,
+        successCount: successCount,
+        failedCount: volumes.count - successCount,
+        results: results,
+        totalDuration: totalDuration
+    )
+}
+
+/// Eject all volumes using diskutil in parallel (for benchmarking)
+func ejectAllVolumesWithDiskutil(volumes: [VolumeInfo]) async -> EjectOutput {
+    let startTime = Date()
+
+    guard !volumes.isEmpty else {
+        return EjectOutput(
+            totalCount: 0,
+            successCount: 0,
+            failedCount: 0,
+            results: [],
+            totalDuration: 0
+        )
+    }
+
+    let results = await withTaskGroup(of: EjectResult.self, returning: [EjectResult].self) { group in
+        for volume in volumes {
+            group.addTask {
+                let (success, error, duration) = ejectVolumeWithDiskutil(path: volume.path)
                 return EjectResult(
                     volume: volume.name,
                     success: success,
@@ -189,7 +276,8 @@ func printJSON<T: Encodable>(_ value: T, compact: Bool = false) {
     let encoder = JSONEncoder()
     encoder.outputFormatting = compact ? .sortedKeys : [.prettyPrinted, .sortedKeys]
     if let data = try? encoder.encode(value),
-       let json = String(data: data, encoding: .utf8) {
+        let json = String(data: data, encoding: .utf8)
+    {
         print(json)
     }
 }
@@ -206,7 +294,7 @@ struct EjectDisks: ParsableCommand {
             Uses NSWorkspace with Swift concurrency for parallel ejection operations.
             """,
         version: "2.0.0",
-        subcommands: [List.self, Count.self, Eject.self],
+        subcommands: [List.self, Count.self, Eject.self, Benchmark.self],
         defaultSubcommand: List.self
     )
 }
@@ -255,10 +343,94 @@ extension EjectDisks {
         @Flag(name: .shortAndLong, help: "Force eject (may cause data loss)")
         var force = false
 
+        @Flag(name: .long, help: "Use diskutil instead of native API (for comparison)")
+        var useDiskutil = false
+
         func run() async {
             let volumes = getEjectableVolumes()
-            let output = await ejectAllVolumes(volumes: volumes, force: force)
+            let output: EjectOutput
+            if useDiskutil {
+                output = await ejectAllVolumesWithDiskutil(volumes: volumes)
+            } else {
+                output = await ejectAllVolumes(volumes: volumes, force: force)
+            }
             printJSON(output, compact: compact)
+        }
+    }
+
+    struct Benchmark: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Benchmark volume enumeration and ejection",
+            discussion: """
+                Measures the time taken for volume enumeration.
+                If volumes are present, compares Swift vs diskutil ejection times.
+                Note: Actually ejecting requires mounted volumes.
+                """
+        )
+
+        @Flag(name: .shortAndLong, help: "Actually eject volumes (destructive)")
+        var eject = false
+
+        @Option(name: .shortAndLong, help: "Number of enumeration iterations")
+        var iterations: Int = 100
+
+        func run() async {
+            print("=== Eject Disks Benchmark ===\n")
+
+            // Benchmark enumeration
+            print("Benchmarking volume enumeration (\(iterations) iterations)...")
+            let enumStart = Date()
+            var volumes: [VolumeInfo] = []
+            for _ in 0..<iterations {
+                volumes = getEjectableVolumes()
+            }
+            let enumDuration = Date().timeIntervalSince(enumStart)
+            let avgEnumTime = enumDuration / Double(iterations)
+
+            print("  Total time: \(String(format: "%.4f", enumDuration))s")
+            print("  Average time: \(String(format: "%.4f", avgEnumTime * 1000))ms")
+            print("  Volumes found: \(volumes.count)")
+
+            if !volumes.isEmpty {
+                print("\nVolumes:")
+                for volume in volumes {
+                    print("  - \(volume.name) (\(volume.bsdName ?? "unknown"))")
+                }
+            }
+
+            // Benchmark ejection if requested and volumes present
+            var swiftTime: Double? = nil
+            var diskutilTime: Double? = nil
+
+            if eject && !volumes.isEmpty {
+                print("\n--- Ejection Benchmark ---")
+                print("WARNING: This will eject all \(volumes.count) volume(s)!")
+                print("Ejecting with Swift (NSWorkspace)...")
+
+                let swiftOutput = await ejectAllVolumes(volumes: volumes, force: false)
+                swiftTime = swiftOutput.totalDuration
+                print("  Swift time: \(String(format: "%.4f", swiftTime!))s")
+                print("  Success: \(swiftOutput.successCount)/\(swiftOutput.totalCount)")
+
+                // Note: Can't benchmark diskutil after Swift ejected the volumes
+                // Would need to remount to compare
+                print("\nNote: Cannot compare with diskutil (volumes already ejected)")
+                print("To compare, run each method separately with fresh mounts.")
+            } else if !eject && !volumes.isEmpty {
+                print("\nTo benchmark actual ejection, use --eject flag")
+                print("WARNING: --eject will unmount all external volumes!")
+            }
+
+            // Print summary
+            print("\n=== Summary ===")
+            let output = BenchmarkOutput(
+                enumerationTime: avgEnumTime,
+                volumeCount: volumes.count,
+                swiftEjectTime: swiftTime,
+                diskutilEjectTime: diskutilTime,
+                speedup: nil
+            )
+            printJSON(output, compact: false)
         }
     }
 }
