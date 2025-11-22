@@ -367,18 +367,22 @@ export class EjectAllDisks extends SingletonAction {
 	 * Updates the disk count display for a specific action
 	 */
 	private async updateDiskCount(action: Action): Promise<void> {
-		const newCount = await this.getDiskCount();
-		const currentCount = this.diskCounts.get(action.id) ?? -1;
+		try {
+			const newCount = await this.getDiskCount();
+			const currentCount = this.diskCounts.get(action.id) ?? -1;
 
-		// Only update if the count has changed
-		if (newCount !== currentCount) {
-			this.diskCounts.set(action.id, newCount);
-			streamDeck.logger.info(`Disk count changed to: ${newCount} for action ${action.id}`);
+			// Only update if the count has changed
+			if (newCount !== currentCount) {
+				this.diskCounts.set(action.id, newCount);
+				streamDeck.logger.info(`Disk count changed to: ${newCount} for action ${action.id}`);
 
-			// Update the icon with the new count
-			await (action as any).setImage(`data:image/svg+xml,${encodeURIComponent(this.createNormalSvg(newCount))}`, {
-				target: Target.HardwareAndSoftware,
-			});
+				// Update the icon with the new count
+				await (action as any).setImage(`data:image/svg+xml,${encodeURIComponent(this.createNormalSvg(newCount))}`, {
+					target: Target.HardwareAndSoftware,
+				});
+			}
+		} catch (error) {
+			streamDeck.logger.error(`Error in updateDiskCount: ${error}`);
 		}
 	}
 
@@ -386,44 +390,62 @@ export class EjectAllDisks extends SingletonAction {
 	 * Starts monitoring disk count for a specific action
 	 */
 	private async startMonitoring(action: Action): Promise<void> {
-		// Stop any existing monitoring for this specific action
-		this.stopMonitoring(action.id);
+		try {
+			// Stop any existing monitoring for this specific action
+			this.stopMonitoring(action.id);
 
-		// Initial count update
-		await this.updateDiskCount(action);
-
-		// Check disk count every 3 seconds
-		const interval = setInterval(async () => {
+			// Initial count update
 			await this.updateDiskCount(action);
-		}, 3000);
 
-		this.monitoringIntervals.set(action.id, interval);
+			// Check disk count every 3 seconds
+			const interval = setInterval(async () => {
+				try {
+					await this.updateDiskCount(action);
+				} catch (error) {
+					streamDeck.logger.error(`Error in monitoring interval: ${error}`);
+				}
+			}, 3000);
+
+			this.monitoringIntervals.set(action.id, interval);
+		} catch (error) {
+			streamDeck.logger.error(`Error in startMonitoring: ${error}`);
+		}
 	}
 
 	/**
 	 * When the action appears on screen
 	 */
 	override async onWillAppear(ev: WillAppearEvent): Promise<void> {
-		// Get the settings or initialize default
-		const settings = (ev.payload.settings as EjectSettings) || {};
+		try {
+			streamDeck.logger.info("onWillAppear called");
 
-		// If showTitle is undefined, initialize it to true
-		if (settings.showTitle === undefined) {
-			settings.showTitle = true;
-			ev.action.setSettings(settings);
-			streamDeck.logger.info(`Initialized settings with showTitle=true`);
+			// Get the settings or initialize default
+			const settings = (ev.payload.settings as EjectSettings) || {};
+
+			// If showTitle is undefined, initialize it to true
+			if (settings.showTitle === undefined) {
+				settings.showTitle = true;
+				await ev.action.setSettings(settings);
+				streamDeck.logger.info(`Initialized settings with showTitle=true`);
+			}
+
+			// Get the show title value (default to true)
+			const showTitle = settings.showTitle !== false;
+
+			// Update title immediately
+			await (ev.action as any).setTitle(showTitle ? "Eject All\nDisks" : "", {
+				target: Target.HardwareAndSoftware,
+			});
+
+			streamDeck.logger.info("About to start monitoring");
+
+			// Start monitoring disk count
+			await this.startMonitoring(ev.action);
+
+			streamDeck.logger.info("Monitoring started successfully");
+		} catch (error) {
+			streamDeck.logger.error(`Error in onWillAppear: ${error}`);
 		}
-
-		// Get the show title value (default to true)
-		const showTitle = settings.showTitle !== false;
-
-		// Update title immediately
-		await (ev.action as any).setTitle(showTitle ? "Eject All\nDisks" : "", {
-			target: Target.HardwareAndSoftware,
-		});
-
-		// Start monitoring disk count
-		await this.startMonitoring(ev.action);
 	}
 
 	/**
