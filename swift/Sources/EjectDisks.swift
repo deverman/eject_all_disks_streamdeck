@@ -152,12 +152,42 @@ func getEjectableVolumes() -> [VolumeInfo] {
 
 /// Eject a single volume using NSWorkspace (synchronous, for use in concurrent context)
 /// Using nonisolated to allow true parallel execution
-nonisolated func ejectVolumeSyncUnsafe(path: String) -> (success: Bool, error: String?) {
+nonisolated func ejectVolumeSyncUnsafe(path: String, force: Bool = false) -> (success: Bool, error: String?) {
     let url = URL(fileURLWithPath: path)
     do {
         // NSWorkspace.shared is thread-safe for this operation
         try NSWorkspace.shared.unmountAndEjectDevice(at: url)
         return (true, nil)
+    } catch {
+        // If regular eject fails and force is requested, try diskutil
+        if force {
+            return ejectWithDiskutilForce(path: path)
+        }
+        return (false, error.localizedDescription)
+    }
+}
+
+/// Force eject using diskutil unmount force (fallback for busy volumes)
+nonisolated func ejectWithDiskutilForce(path: String) -> (success: Bool, error: String?) {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
+    process.arguments = ["unmount", "force", path]
+
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = pipe
+
+    do {
+        try process.run()
+        process.waitUntilExit()
+
+        if process.terminationStatus == 0 {
+            return (true, nil)
+        } else {
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8) ?? "Unknown error"
+            return (false, output.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
     } catch {
         return (false, error.localizedDescription)
     }
@@ -212,7 +242,7 @@ func ejectAllVolumes(volumes: [VolumeInfo], force: Bool = false) async -> EjectO
             group.addTask {
                 let volumeStartTime = Date()
                 // Use the nonisolated sync version for true parallelism
-                let (success, error) = ejectVolumeSyncUnsafe(path: volume.path)
+                let (success, error) = ejectVolumeSyncUnsafe(path: volume.path, force: force)
                 let duration = Date().timeIntervalSince(volumeStartTime)
 
                 return EjectResult(
