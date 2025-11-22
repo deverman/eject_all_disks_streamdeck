@@ -14,7 +14,12 @@ import streamDeck, {
 import { exec } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
+import { fileURLToPath } from "url";
 import { promisify } from "util";
+
+// Get __dirname equivalent for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Types for Swift binary JSON output
 interface VolumeInfo {
@@ -71,8 +76,9 @@ export class EjectAllDisks extends SingletonAction {
 			return this.swiftBinaryPath;
 		}
 
+		streamDeck.logger.info(`Looking for Swift binary, __dirname: ${__dirname}, cwd: ${process.cwd()}`);
+
 		// The binary is in the bin directory alongside plugin.js
-		// __dirname in Node.js bundle context points to the plugin's bin directory
 		const possiblePaths = [
 			path.join(__dirname, "eject-disks"),
 			path.join(__dirname, "..", "bin", "eject-disks"),
@@ -80,6 +86,7 @@ export class EjectAllDisks extends SingletonAction {
 		];
 
 		for (const binPath of possiblePaths) {
+			streamDeck.logger.info(`Checking path: ${binPath}, exists: ${fs.existsSync(binPath)}`);
 			if (fs.existsSync(binPath)) {
 				this.swiftBinaryPath = binPath;
 				streamDeck.logger.info(`Found Swift binary at: ${binPath}`);
