@@ -21,6 +21,8 @@ interface VolumeInfo {
 	name: string;
 	path: string;
 	bsdName?: string;
+	isEjectable: boolean;
+	isRemovable: boolean;
 }
 
 interface ListOutput {

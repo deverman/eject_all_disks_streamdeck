@@ -16,6 +16,8 @@ struct VolumeInfo: Codable, Sendable {
     let name: String
     let path: String
     let bsdName: String?
+    let isEjectable: Bool
+    let isRemovable: Bool
 }
 
 struct EjectResult: Codable, Sendable {
@@ -92,7 +94,7 @@ func getEjectableVolumes() -> [VolumeInfo] {
 
         let path = "\(volumesPath)/\(name)"
 
-        // Verify it's a mount point and is ejectable
+        // Verify it's a mount point
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
             isDirectory.boolValue
@@ -100,18 +102,29 @@ func getEjectableVolumes() -> [VolumeInfo] {
             continue
         }
 
-        // Check if volume is ejectable using URL resource values
         let url = URL(fileURLWithPath: path)
+
+        // Get volume properties
+        var isEjectable = false
+        var isRemovable = false
+        var isInternal = true
+
         if let resourceValues = try? url.resourceValues(forKeys: [
-            .volumeIsEjectableKey, .volumeIsRemovableKey,
-        ]),
-            let isEjectable = resourceValues.volumeIsEjectable,
-            let isRemovable = resourceValues.volumeIsRemovable
-        {
-            // Include if ejectable OR removable (external drives)
-            if !isEjectable && !isRemovable {
-                continue
-            }
+            .volumeIsEjectableKey,
+            .volumeIsRemovableKey,
+            .volumeIsInternalKey,
+        ]) {
+            isEjectable = resourceValues.volumeIsEjectable ?? false
+            isRemovable = resourceValues.volumeIsRemovable ?? false
+            isInternal = resourceValues.volumeIsInternal ?? true
+        }
+
+        // Include if:
+        // - Volume is ejectable, OR
+        // - Volume is removable, OR
+        // - Volume is NOT internal (external drives)
+        if !isEjectable && !isRemovable && isInternal {
+            continue
         }
 
         // Get BSD name if available (for informational purposes)
@@ -123,7 +136,13 @@ func getEjectableVolumes() -> [VolumeInfo] {
             bsdName = String(cString: bsdNameCStr)
         }
 
-        volumes.append(VolumeInfo(name: name, path: path, bsdName: bsdName))
+        volumes.append(VolumeInfo(
+            name: name,
+            path: path,
+            bsdName: bsdName,
+            isEjectable: isEjectable,
+            isRemovable: isRemovable
+        ))
     }
 
     return volumes
@@ -394,13 +413,13 @@ extension EjectDisks {
             if !volumes.isEmpty {
                 print("\nVolumes:")
                 for volume in volumes {
-                    print("  - \(volume.name) (\(volume.bsdName ?? "unknown"))")
+                    print("  - \(volume.name) (bsd: \(volume.bsdName ?? "unknown"), ejectable: \(volume.isEjectable), removable: \(volume.isRemovable))")
                 }
             }
 
             // Benchmark ejection if requested and volumes present
             var swiftTime: Double? = nil
-            var diskutilTime: Double? = nil
+            let diskutilTime: Double? = nil
 
             if eject && !volumes.isEmpty {
                 print("\n--- Ejection Benchmark ---")
