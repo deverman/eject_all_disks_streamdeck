@@ -1,4 +1,3 @@
-#!/usr/bin/env swift
 //
 //  EjectDisks.swift
 //  Fast disk ejection using native macOS APIs
@@ -6,9 +5,10 @@
 //  Uses DiskArbitration framework for high-performance parallel ejection
 //
 
-import Foundation
-import DiskArbitration
+import ArgumentParser
 import AppKit
+import DiskArbitration
+import Foundation
 
 // MARK: - JSON Output Types
 
@@ -116,63 +116,9 @@ func getEjectableVolumes() -> [VolumeInfo] {
     return volumes
 }
 
-// MARK: - Disk Ejection using DiskArbitration
+// MARK: - Disk Ejection
 
-/// Eject a single volume using DiskArbitration (fastest method)
-func ejectVolumeDA(path: String, session: DASession, completion: @escaping (Bool, String?) -> Void) {
-    let url = URL(fileURLWithPath: path)
-
-    guard let disk = DADiskCreateFromVolumePath(kCFAllocatorDefault, session, url as CFURL) else {
-        completion(false, "Could not create disk reference")
-        return
-    }
-
-    // Use unmount + eject for complete removal
-    let unmountOptions = DADiskUnmountOptions(kDADiskUnmountOptionWhole)
-
-    DADiskUnmount(disk, unmountOptions, { disk, dissenter, context in
-        if let dissenter = dissenter {
-            let status = DADissenterGetStatus(dissenter)
-            let statusString = String(format: "0x%08X", status)
-
-            // Try to get error description
-            var errorDesc = "Unmount failed (status: \(statusString))"
-            if let reason = DADissenterGetStatusString(dissenter) {
-                errorDesc = String(reason)
-            }
-
-            // Even if unmount "fails", the disk might still be ejectable
-            // Try to eject anyway
-            DADiskEject(disk, DADiskEjectOptions(kDADiskEjectOptionDefault), { disk, dissenter, context in
-                if dissenter != nil {
-                    let completionPtr = context!.assumingMemoryBound(to: ((Bool, String?) -> Void).self)
-                    completionPtr.pointee(false, errorDesc)
-                } else {
-                    let completionPtr = context!.assumingMemoryBound(to: ((Bool, String?) -> Void).self)
-                    completionPtr.pointee(true, nil)
-                }
-            }, context)
-        } else {
-            // Unmount succeeded, now eject
-            DADiskEject(disk, DADiskEjectOptions(kDADiskEjectOptionDefault), { disk, dissenter, context in
-                if let dissenter = dissenter {
-                    let status = DADissenterGetStatus(dissenter)
-                    var errorDesc = String(format: "Eject failed (status: 0x%08X)", status)
-                    if let reason = DADissenterGetStatusString(dissenter) {
-                        errorDesc = String(reason)
-                    }
-                    let completionPtr = context!.assumingMemoryBound(to: ((Bool, String?) -> Void).self)
-                    completionPtr.pointee(false, errorDesc)
-                } else {
-                    let completionPtr = context!.assumingMemoryBound(to: ((Bool, String?) -> Void).self)
-                    completionPtr.pointee(true, nil)
-                }
-            }, context)
-        }
-    }, UnsafeMutableRawPointer(Unmanaged.passRetained(completion as AnyObject).toOpaque()))
-}
-
-/// Eject using NSWorkspace (fallback, simpler but potentially slower)
+/// Eject using NSWorkspace (simpler, reliable)
 func ejectVolumeNS(path: String) -> (Bool, String?) {
     let url = URL(fileURLWithPath: path)
     var error: NSError?
@@ -185,8 +131,6 @@ func ejectVolumeNS(path: String) -> (Bool, String?) {
         return (false, error?.localizedDescription ?? "Unknown error")
     }
 }
-
-// MARK: - Parallel Ejection
 
 /// Eject all volumes in parallel using dispatch queues
 func ejectAllVolumesParallel(volumes: [VolumeInfo]) -> EjectOutput {
@@ -225,7 +169,6 @@ func ejectAllVolumesParallel(volumes: [VolumeInfo]) -> EjectOutput {
                     if dissenter != nil {
                         // Try eject even if unmount reports an issue
                         DADiskEject(disk, DADiskEjectOptions(kDADiskEjectOptionDefault), { _, dissenter, _ in
-                            // Note: we don't care about eject result for completion
                             semPtr.pointee.signal()
                         }, context)
                     } else {
@@ -333,7 +276,7 @@ func ejectAllVolumesNSWorkspace(volumes: [VolumeInfo]) -> EjectOutput {
     )
 }
 
-// MARK: - Main Entry Point
+// MARK: - JSON Output Helper
 
 func printJSON<T: Encodable>(_ value: T) {
     let encoder = JSONEncoder()
@@ -344,52 +287,97 @@ func printJSON<T: Encodable>(_ value: T) {
     }
 }
 
-func main() {
-    let args = CommandLine.arguments
+// MARK: - ArgumentParser Commands
 
-    guard args.count >= 2 else {
-        fputs("Usage: eject-disks <command>\n", stderr)
-        fputs("Commands:\n", stderr)
-        fputs("  list    - List ejectable volumes (JSON)\n", stderr)
-        fputs("  count   - Print count of ejectable volumes\n", stderr)
-        fputs("  eject   - Eject all volumes (JSON)\n", stderr)
-        exit(1)
-    }
-
-    let command = args[1]
-
-    switch command {
-    case "list":
-        let volumes = getEjectableVolumes()
-        let output = ListOutput(count: volumes.count, volumes: volumes)
-        printJSON(output)
-
-    case "count":
-        let volumes = getEjectableVolumes()
-        print(volumes.count)
-
-    case "eject":
-        let volumes = getEjectableVolumes()
-
-        if volumes.isEmpty {
-            let output = EjectOutput(
-                totalCount: 0,
-                successCount: 0,
-                failedCount: 0,
-                results: [],
-                totalDuration: 0
-            )
-            printJSON(output)
-        } else {
-            let output = ejectAllVolumesParallel(volumes: volumes)
-            printJSON(output)
-        }
-
-    default:
-        fputs("Unknown command: \(command)\n", stderr)
-        fputs("Use 'list', 'count', or 'eject'\n", stderr)
-        exit(1)
-    }
+@main
+struct EjectDisks: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "eject-disks",
+        abstract: "Fast disk ejection using native macOS APIs",
+        discussion: """
+            A high-performance tool for ejecting external disks on macOS.
+            Uses the DiskArbitration framework for parallel ejection operations.
+            """,
+        version: "1.0.0",
+        subcommands: [List.self, Count.self, Eject.self],
+        defaultSubcommand: List.self
+    )
 }
 
-main()
+extension EjectDisks {
+    struct List: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "List all ejectable volumes",
+            discussion: "Returns a JSON object with count and volume details."
+        )
+
+        @Flag(name: .shortAndLong, help: "Output in compact JSON format")
+        var compact = false
+
+        func run() {
+            let volumes = getEjectableVolumes()
+            let output = ListOutput(count: volumes.count, volumes: volumes)
+
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = compact ? .sortedKeys : [.prettyPrinted, .sortedKeys]
+
+            if let data = try? encoder.encode(output),
+               let json = String(data: data, encoding: .utf8) {
+                print(json)
+            }
+        }
+    }
+
+    struct Count: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Print the count of ejectable volumes",
+            discussion: "Returns just the number of ejectable volumes."
+        )
+
+        func run() {
+            let volumes = getEjectableVolumes()
+            print(volumes.count)
+        }
+    }
+
+    struct Eject: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Eject all external volumes",
+            discussion: """
+                Ejects all ejectable volumes in parallel using native macOS APIs.
+                Returns a JSON object with results for each volume.
+                """
+        )
+
+        @Flag(name: .shortAndLong, help: "Output in compact JSON format")
+        var compact = false
+
+        @Flag(name: .shortAndLong, help: "Force eject (may cause data loss)")
+        var force = false
+
+        func run() {
+            let volumes = getEjectableVolumes()
+
+            let output: EjectOutput
+            if volumes.isEmpty {
+                output = EjectOutput(
+                    totalCount: 0,
+                    successCount: 0,
+                    failedCount: 0,
+                    results: [],
+                    totalDuration: 0
+                )
+            } else {
+                output = ejectAllVolumesParallel(volumes: volumes)
+            }
+
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = compact ? .sortedKeys : [.prettyPrinted, .sortedKeys]
+
+            if let data = try? encoder.encode(output),
+               let json = String(data: data, encoding: .utf8) {
+                print(json)
+            }
+        }
+    }
+}

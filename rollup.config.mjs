@@ -38,20 +38,23 @@ const config = {
 					return;
 				}
 
-				const swiftSrc = "swift/EjectDisks.swift";
+				const swiftPkg = "swift/Package.swift";
+				const swiftSrc = "swift/Sources/EjectDisks.swift";
 				const outputBin = `${sdPlugin}/bin/eject-disks`;
 
-				// Check if Swift source exists
-				if (!fs.existsSync(swiftSrc)) {
-					console.log("Swift source not found, skipping Swift build");
+				// Check if Swift package exists
+				if (!fs.existsSync(swiftPkg)) {
+					console.log("Swift Package.swift not found, skipping Swift build");
 					return;
 				}
 
 				// Check if rebuild is needed (source newer than binary)
-				if (fs.existsSync(outputBin)) {
+				if (fs.existsSync(outputBin) && fs.existsSync(swiftSrc)) {
 					const srcStat = fs.statSync(swiftSrc);
+					const pkgStat = fs.statSync(swiftPkg);
 					const binStat = fs.statSync(outputBin);
-					if (srcStat.mtime <= binStat.mtime) {
+					const latestSrc = srcStat.mtime > pkgStat.mtime ? srcStat.mtime : pkgStat.mtime;
+					if (latestSrc <= binStat.mtime) {
 						console.log("Swift binary is up to date");
 						return;
 					}

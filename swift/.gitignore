@@ -1,0 +1,11 @@
+# Swift Package Manager build directory
+.build/
+.swiftpm/
+
+# Xcode build directories (if opened in Xcode)
+DerivedData/
+*.xcodeproj
+*.xcworkspace
+
+# macOS
+.DS_Store

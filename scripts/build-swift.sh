@@ -1,8 +1,8 @@
 #!/bin/bash
 #
-# Build Swift disk ejection tool
+# Build Swift disk ejection tool using Swift Package Manager
 #
-# This script compiles the Swift source into a universal binary
+# This script compiles the Swift package into a universal binary
 # that runs on both Intel and Apple Silicon Macs.
 #
 
@@ -10,7 +10,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-SWIFT_SRC="$PROJECT_ROOT/swift/EjectDisks.swift"
+SWIFT_PKG="$PROJECT_ROOT/swift"
 OUTPUT_DIR="$PROJECT_ROOT/org.deverman.ejectalldisks.sdPlugin/bin"
 OUTPUT_BIN="$OUTPUT_DIR/eject-disks"
 
@@ -20,60 +20,66 @@ echo "Building Swift disk ejection tool..."
 mkdir -p "$OUTPUT_DIR"
 
 # Check if Swift is available
-if ! command -v swiftc &> /dev/null; then
-    echo "Error: Swift compiler (swiftc) not found"
+if ! command -v swift &> /dev/null; then
+    echo "Error: Swift not found"
     echo "Please install Xcode or Xcode Command Line Tools"
     exit 1
 fi
 
-# Check if source exists
-if [ ! -f "$SWIFT_SRC" ]; then
-    echo "Error: Swift source not found at $SWIFT_SRC"
+# Check if Package.swift exists
+if [ ! -f "$SWIFT_PKG/Package.swift" ]; then
+    echo "Error: Package.swift not found at $SWIFT_PKG"
     exit 1
 fi
 
-# Compile for both architectures (universal binary)
-# -O for optimizations
-# -whole-module-optimization for better performance
-# -target for architecture-specific builds
+cd "$SWIFT_PKG"
 
-echo "Compiling for arm64..."
-swiftc -O -whole-module-optimization \
-    -target arm64-apple-macosx11.0 \
-    -o "${OUTPUT_BIN}-arm64" \
-    "$SWIFT_SRC" 2>/dev/null || {
-    echo "arm64 build failed, trying without target..."
-    swiftc -O -whole-module-optimization \
-        -o "${OUTPUT_BIN}-arm64" \
-        "$SWIFT_SRC"
-}
+# Build for release
+echo "Building release configuration..."
 
-echo "Compiling for x86_64..."
-swiftc -O -whole-module-optimization \
-    -target x86_64-apple-macosx10.15 \
-    -o "${OUTPUT_BIN}-x86_64" \
-    "$SWIFT_SRC" 2>/dev/null || {
-    echo "x86_64 build skipped (not supported on this machine)"
-    # Just use the arm64 build
-    cp "${OUTPUT_BIN}-arm64" "$OUTPUT_BIN"
-    rm -f "${OUTPUT_BIN}-arm64"
-    echo "Built single-architecture binary"
-    echo "Output: $OUTPUT_BIN"
-    exit 0
-}
+# Try to build universal binary (both architectures)
+echo "Attempting universal binary build (arm64 + x86_64)..."
 
-echo "Creating universal binary..."
-lipo -create \
-    "${OUTPUT_BIN}-arm64" \
-    "${OUTPUT_BIN}-x86_64" \
-    -output "$OUTPUT_BIN"
+# Build for arm64
+echo "Building for arm64..."
+swift build -c release --arch arm64 2>/dev/null && ARM64_SUCCESS=true || ARM64_SUCCESS=false
 
-# Cleanup intermediate files
-rm -f "${OUTPUT_BIN}-arm64" "${OUTPUT_BIN}-x86_64"
+# Build for x86_64
+echo "Building for x86_64..."
+swift build -c release --arch x86_64 2>/dev/null && X86_SUCCESS=true || X86_SUCCESS=false
+
+if [ "$ARM64_SUCCESS" = true ] && [ "$X86_SUCCESS" = true ]; then
+    echo "Creating universal binary..."
+
+    # Find the built binaries
+    ARM64_BIN="$SWIFT_PKG/.build/arm64-apple-macosx/release/eject-disks"
+    X86_BIN="$SWIFT_PKG/.build/x86_64-apple-macosx/release/eject-disks"
+
+    if [ -f "$ARM64_BIN" ] && [ -f "$X86_BIN" ]; then
+        lipo -create "$ARM64_BIN" "$X86_BIN" -output "$OUTPUT_BIN"
+        echo "Universal binary created successfully"
+    else
+        echo "Warning: Could not find architecture-specific binaries"
+        echo "Falling back to default build..."
+        swift build -c release
+        cp "$SWIFT_PKG/.build/release/eject-disks" "$OUTPUT_BIN"
+    fi
+elif [ "$ARM64_SUCCESS" = true ]; then
+    echo "x86_64 build failed, using arm64 only..."
+    cp "$SWIFT_PKG/.build/arm64-apple-macosx/release/eject-disks" "$OUTPUT_BIN"
+elif [ "$X86_SUCCESS" = true ]; then
+    echo "arm64 build failed, using x86_64 only..."
+    cp "$SWIFT_PKG/.build/x86_64-apple-macosx/release/eject-disks" "$OUTPUT_BIN"
+else
+    echo "Architecture-specific builds failed, trying default build..."
+    swift build -c release
+    cp "$SWIFT_PKG/.build/release/eject-disks" "$OUTPUT_BIN"
+fi
 
 # Make executable
 chmod +x "$OUTPUT_BIN"
 
+echo ""
 echo "Build complete!"
 echo "Output: $OUTPUT_BIN"
 
@@ -82,3 +88,8 @@ echo ""
 echo "Binary info:"
 file "$OUTPUT_BIN"
 ls -lh "$OUTPUT_BIN"
+
+# Show help output
+echo ""
+echo "Command help:"
+"$OUTPUT_BIN" --help
