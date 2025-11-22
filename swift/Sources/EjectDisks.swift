@@ -304,7 +304,7 @@ func printJSON<T: Encodable>(_ value: T, compact: Bool = false) {
 // MARK: - ArgumentParser Commands
 
 @main
-struct EjectDisks: ParsableCommand {
+struct EjectDisks: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "eject-disks",
         abstract: "Fast disk ejection using native macOS APIs",
