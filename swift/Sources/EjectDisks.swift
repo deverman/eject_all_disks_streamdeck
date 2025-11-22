@@ -124,9 +124,12 @@ func ejectVolume(path: String) async -> (success: Bool, error: String?) {
     // NSWorkspace operations need to run on main actor for safety
     await MainActor.run {
         let url = URL(fileURLWithPath: path)
-        var error: NSError?
-        let success = NSWorkspace.shared.unmountAndEjectDevice(at: url, error: &error)
-        return (success, error?.localizedDescription)
+        do {
+            try NSWorkspace.shared.unmountAndEjectDevice(at: url)
+            return (true, nil)
+        } catch {
+            return (false, error.localizedDescription)
+        }
     }
 }
 

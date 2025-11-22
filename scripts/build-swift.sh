@@ -2,8 +2,8 @@
 #
 # Build Swift disk ejection tool using Swift Package Manager
 #
-# This script compiles the Swift package into a universal binary
-# that runs on both Intel and Apple Silicon Macs.
+# Builds for the native architecture (arm64 on Apple Silicon).
+# Since macOS 15+ is required, all target Macs support arm64.
 #
 
 set -e
@@ -22,9 +22,12 @@ mkdir -p "$OUTPUT_DIR"
 # Check if Swift is available
 if ! command -v swift &> /dev/null; then
     echo "Error: Swift not found"
-    echo "Please install Xcode or Xcode Command Line Tools"
+    echo "Please install Swift from https://www.swift.org/install/"
     exit 1
 fi
+
+# Show Swift version
+echo "Swift version: $(swift --version | head -1)"
 
 # Check if Package.swift exists
 if [ ! -f "$SWIFT_PKG/Package.swift" ]; then
@@ -34,62 +37,32 @@ fi
 
 cd "$SWIFT_PKG"
 
-# Build for release
+# Build for release (native architecture)
 echo "Building release configuration..."
+swift build -c release
 
-# Try to build universal binary (both architectures)
-echo "Attempting universal binary build (arm64 + x86_64)..."
+# Find and copy the built binary
+BUILD_BIN="$SWIFT_PKG/.build/release/eject-disks"
 
-# Build for arm64
-echo "Building for arm64..."
-swift build -c release --arch arm64 2>/dev/null && ARM64_SUCCESS=true || ARM64_SUCCESS=false
+if [ -f "$BUILD_BIN" ]; then
+    cp "$BUILD_BIN" "$OUTPUT_BIN"
+    chmod +x "$OUTPUT_BIN"
 
-# Build for x86_64
-echo "Building for x86_64..."
-swift build -c release --arch x86_64 2>/dev/null && X86_SUCCESS=true || X86_SUCCESS=false
+    echo ""
+    echo "Build complete!"
+    echo "Output: $OUTPUT_BIN"
 
-if [ "$ARM64_SUCCESS" = true ] && [ "$X86_SUCCESS" = true ]; then
-    echo "Creating universal binary..."
+    # Show binary info
+    echo ""
+    echo "Binary info:"
+    file "$OUTPUT_BIN"
+    ls -lh "$OUTPUT_BIN"
 
-    # Find the built binaries
-    ARM64_BIN="$SWIFT_PKG/.build/arm64-apple-macosx/release/eject-disks"
-    X86_BIN="$SWIFT_PKG/.build/x86_64-apple-macosx/release/eject-disks"
-
-    if [ -f "$ARM64_BIN" ] && [ -f "$X86_BIN" ]; then
-        lipo -create "$ARM64_BIN" "$X86_BIN" -output "$OUTPUT_BIN"
-        echo "Universal binary created successfully"
-    else
-        echo "Warning: Could not find architecture-specific binaries"
-        echo "Falling back to default build..."
-        swift build -c release
-        cp "$SWIFT_PKG/.build/release/eject-disks" "$OUTPUT_BIN"
-    fi
-elif [ "$ARM64_SUCCESS" = true ]; then
-    echo "x86_64 build failed, using arm64 only..."
-    cp "$SWIFT_PKG/.build/arm64-apple-macosx/release/eject-disks" "$OUTPUT_BIN"
-elif [ "$X86_SUCCESS" = true ]; then
-    echo "arm64 build failed, using x86_64 only..."
-    cp "$SWIFT_PKG/.build/x86_64-apple-macosx/release/eject-disks" "$OUTPUT_BIN"
+    # Show help output
+    echo ""
+    echo "Command help:"
+    "$OUTPUT_BIN" --help
 else
-    echo "Architecture-specific builds failed, trying default build..."
-    swift build -c release
-    cp "$SWIFT_PKG/.build/release/eject-disks" "$OUTPUT_BIN"
+    echo "Error: Build succeeded but binary not found at $BUILD_BIN"
+    exit 1
 fi
-
-# Make executable
-chmod +x "$OUTPUT_BIN"
-
-echo ""
-echo "Build complete!"
-echo "Output: $OUTPUT_BIN"
-
-# Show binary info
-echo ""
-echo "Binary info:"
-file "$OUTPUT_BIN"
-ls -lh "$OUTPUT_BIN"
-
-# Show help output
-echo ""
-echo "Command help:"
-"$OUTPUT_BIN" --help
