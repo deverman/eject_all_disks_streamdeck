@@ -35,11 +35,18 @@ interface ListOutput {
 	volumes: VolumeInfo[];
 }
 
+interface ProcessInfo {
+	pid: string;
+	command: string;
+	user: string;
+}
+
 interface EjectResult {
 	volume: string;
 	success: boolean;
 	error?: string;
 	duration: number;
+	blockingProcesses?: ProcessInfo[];
 }
 
 interface EjectOutput {
@@ -514,8 +521,9 @@ export class EjectAllDisks extends SingletonAction {
 
 			if (binaryPath) {
 				// Use Swift binary (fastest - uses DiskArbitration framework)
+				// Use verbose mode to get blocking process info on failures
 				try {
-					const { stdout } = await execPromise(`"${binaryPath}" eject`, {
+					const { stdout } = await execPromise(`"${binaryPath}" eject --verbose`, {
 						shell: "/bin/bash",
 						timeout: 30000, // 30 second timeout for ejection
 					});
@@ -525,12 +533,22 @@ export class EjectAllDisks extends SingletonAction {
 						`Swift eject completed: ${ejectResult.successCount}/${ejectResult.totalCount} in ${ejectResult.totalDuration.toFixed(2)}s`,
 					);
 
-					// Check for failures
+					// Check for failures and log detailed info
 					if (ejectResult.failedCount > 0) {
-						const failures = ejectResult.results
-							.filter((r) => !r.success)
-							.map((r) => `${r.volume}: ${r.error}`)
-							.join(", ");
+						const failedResults = ejectResult.results.filter((r) => !r.success);
+
+						// Log detailed info for each failure
+						for (const result of failedResults) {
+							streamDeck.logger.error(`Failed to eject "${result.volume}": ${result.error}`);
+							if (result.blockingProcesses && result.blockingProcesses.length > 0) {
+								const processInfo = result.blockingProcesses
+									.map((p) => `${p.command} (PID: ${p.pid}, User: ${p.user})`)
+									.join(", ");
+								streamDeck.logger.error(`  Blocking processes: ${processInfo}`);
+							}
+						}
+
+						const failures = failedResults.map((r) => `${r.volume}: ${r.error}`).join(", ");
 						ejectError = failures;
 					}
 				} catch (error) {

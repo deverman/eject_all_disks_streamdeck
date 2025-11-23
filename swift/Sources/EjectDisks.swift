@@ -25,6 +25,13 @@ struct EjectResult: Codable, Sendable {
     let success: Bool
     let error: String?
     let duration: Double
+    let blockingProcesses: [ProcessInfo]?
+}
+
+struct ProcessInfo: Codable, Sendable {
+    let pid: String
+    let command: String
+    let user: String
 }
 
 struct ListOutput: Codable, Sendable {
@@ -148,11 +155,62 @@ func getEjectableVolumes() -> [VolumeInfo] {
     return volumes
 }
 
+// MARK: - Process Discovery
+
+/// Get list of processes using a volume path via lsof
+nonisolated func getBlockingProcesses(path: String) -> [ProcessInfo] {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+    // +D recursively searches the directory, but can be slow
+    // Using the volume path directly is faster
+    process.arguments = ["+D", path]
+
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = FileHandle.nullDevice
+
+    do {
+        try process.run()
+        process.waitUntilExit()
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8) else {
+            return []
+        }
+
+        // Parse lsof output
+        // Format: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME
+        var processes: [ProcessInfo] = []
+        var seenPids: Set<String> = []
+
+        for line in output.components(separatedBy: "\n") {
+            let parts = line.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+            // Skip header line and empty lines
+            if parts.count >= 3 && parts[0] != "COMMAND" {
+                let pid = parts[1]
+                // Only add each PID once
+                if !seenPids.contains(pid) {
+                    seenPids.insert(pid)
+                    processes.append(ProcessInfo(
+                        pid: pid,
+                        command: parts[0],
+                        user: parts[2]
+                    ))
+                }
+            }
+        }
+
+        return processes
+    } catch {
+        return []
+    }
+}
+
 // MARK: - Disk Ejection (Swift 6 Concurrency)
 
 /// Eject a single volume using diskutil eject (reliable and fast when run in parallel)
 /// Note: NSWorkspace.unmountAndEjectDevice incorrectly returns error -47 for non-busy volumes
-nonisolated func ejectVolumeWithDiskutilSync(path: String) -> (success: Bool, error: String?) {
+nonisolated func ejectVolumeWithDiskutilSync(path: String, verbose: Bool = false) -> (success: Bool, error: String?, blockingProcesses: [ProcessInfo]?) {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
     process.arguments = ["eject", path]
@@ -166,14 +224,19 @@ nonisolated func ejectVolumeWithDiskutilSync(path: String) -> (success: Bool, er
         process.waitUntilExit()
 
         if process.terminationStatus == 0 {
-            return (true, nil)
+            return (true, nil, nil)
         } else {
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             let output = String(data: data, encoding: .utf8) ?? "Unknown error"
-            return (false, output.trimmingCharacters(in: .whitespacesAndNewlines))
+            let errorMsg = output.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // If verbose mode or eject failed, find what processes are blocking
+            let blockingProcesses = getBlockingProcesses(path: path)
+
+            return (false, errorMsg, blockingProcesses.isEmpty ? nil : blockingProcesses)
         }
     } catch {
-        return (false, error.localizedDescription)
+        return (false, error.localizedDescription, nil)
     }
 }
 
@@ -250,7 +313,7 @@ func ejectVolumeWithDiskutil(path: String) -> (success: Bool, error: String?, du
 }
 
 /// Eject all volumes in parallel using Swift concurrency
-func ejectAllVolumes(volumes: [VolumeInfo], force: Bool = false) async -> EjectOutput {
+func ejectAllVolumes(volumes: [VolumeInfo], force: Bool = false, verbose: Bool = false) async -> EjectOutput {
     let startTime = Date()
 
     guard !volumes.isEmpty else {
@@ -271,14 +334,15 @@ func ejectAllVolumes(volumes: [VolumeInfo], force: Bool = false) async -> EjectO
             group.addTask {
                 let volumeStartTime = Date()
                 // Use diskutil eject for reliable ejection
-                let (success, error) = ejectVolumeWithDiskutilSync(path: volume.path)
+                let (success, error, blockingProcesses) = ejectVolumeWithDiskutilSync(path: volume.path, verbose: verbose)
                 let duration = Date().timeIntervalSince(volumeStartTime)
 
                 return EjectResult(
                     volume: volume.name,
                     success: success,
                     error: error,
-                    duration: duration
+                    duration: duration,
+                    blockingProcesses: blockingProcesses
                 )
             }
         }
@@ -303,7 +367,7 @@ func ejectAllVolumes(volumes: [VolumeInfo], force: Bool = false) async -> EjectO
 }
 
 /// Eject all volumes using diskutil in parallel (for benchmarking)
-func ejectAllVolumesWithDiskutil(volumes: [VolumeInfo]) async -> EjectOutput {
+func ejectAllVolumesWithDiskutil(volumes: [VolumeInfo], verbose: Bool = false) async -> EjectOutput {
     let startTime = Date()
 
     guard !volumes.isEmpty else {
@@ -320,11 +384,18 @@ func ejectAllVolumesWithDiskutil(volumes: [VolumeInfo]) async -> EjectOutput {
         for volume in volumes {
             group.addTask {
                 let (success, error, duration) = ejectVolumeWithDiskutil(path: volume.path)
+                // If failed and verbose, get blocking processes
+                var blockingProcesses: [ProcessInfo]? = nil
+                if !success {
+                    let processes = getBlockingProcesses(path: volume.path)
+                    blockingProcesses = processes.isEmpty ? nil : processes
+                }
                 return EjectResult(
                     volume: volume.name,
                     success: success,
                     error: error,
-                    duration: duration
+                    duration: duration,
+                    blockingProcesses: blockingProcesses
                 )
             }
         }
@@ -371,8 +442,8 @@ struct EjectDisks: AsyncParsableCommand {
             A high-performance tool for ejecting external disks on macOS.
             Uses NSWorkspace with Swift concurrency for parallel ejection operations.
             """,
-        version: "2.0.0",
-        subcommands: [List.self, Count.self, Eject.self, Benchmark.self],
+        version: "2.1.0",
+        subcommands: [List.self, Count.self, Eject.self, Diagnose.self, Benchmark.self],
         defaultSubcommand: List.self
     )
 }
@@ -412,6 +483,7 @@ extension EjectDisks {
             discussion: """
                 Ejects all ejectable volumes in parallel using native macOS APIs.
                 Returns a JSON object with results for each volume.
+                When verbose mode is enabled, shows which processes are blocking ejection on failure.
                 """
         )
 
@@ -421,6 +493,9 @@ extension EjectDisks {
         @Flag(name: .shortAndLong, help: "Force eject (may cause data loss)")
         var force = false
 
+        @Flag(name: .shortAndLong, help: "Show blocking processes on eject failure")
+        var verbose = false
+
         @Flag(name: .long, help: "Use diskutil instead of native API (for comparison)")
         var useDiskutil = false
 
@@ -428,10 +503,52 @@ extension EjectDisks {
             let volumes = getEjectableVolumes()
             let output: EjectOutput
             if useDiskutil {
-                output = await ejectAllVolumesWithDiskutil(volumes: volumes)
+                output = await ejectAllVolumesWithDiskutil(volumes: volumes, verbose: verbose)
             } else {
-                output = await ejectAllVolumes(volumes: volumes, force: force)
+                output = await ejectAllVolumes(volumes: volumes, force: force, verbose: verbose)
             }
+            printJSON(output, compact: compact)
+        }
+    }
+
+    struct Diagnose: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Diagnose why volumes can't be ejected",
+            discussion: """
+                Lists all ejectable volumes and shows which processes have files open on each.
+                Use this to understand why a disk can't be ejected before trying again.
+                """
+        )
+
+        @Flag(name: .shortAndLong, help: "Output in compact JSON format")
+        var compact = false
+
+        func run() async {
+            let volumes = getEjectableVolumes()
+
+            struct DiagnoseResult: Codable {
+                let volume: String
+                let path: String
+                let blockingProcesses: [ProcessInfo]
+            }
+
+            struct DiagnoseOutput: Codable {
+                let volumeCount: Int
+                let results: [DiagnoseResult]
+            }
+
+            var results: [DiagnoseResult] = []
+
+            for volume in volumes {
+                let processes = getBlockingProcesses(path: volume.path)
+                results.append(DiagnoseResult(
+                    volume: volume.name,
+                    path: volume.path,
+                    blockingProcesses: processes
+                ))
+            }
+
+            let output = DiagnoseOutput(volumeCount: volumes.count, results: results)
             printJSON(output, compact: compact)
         }
     }
