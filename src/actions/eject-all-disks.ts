@@ -613,12 +613,18 @@ export class EjectAllDisks extends SingletonAction {
 
 				// Reset title and image after 2 seconds
 				const timeout = setTimeout(async () => {
-					await this.updateDiskCount(ev.action);
-					const finalSettings = (await ev.action.getSettings()) as EjectSettings;
-					const showFinalTitle = finalSettings?.showTitle !== false;
-					await (ev.action as any).setTitle(showFinalTitle ? "Eject All\nDisks" : "", {
-						target: Target.HardwareAndSoftware,
-					});
+					try {
+						streamDeck.logger.info("Resetting display after error...");
+						await this.updateDiskCount(ev.action);
+						const finalSettings = (await ev.action.getSettings()) as EjectSettings;
+						const showFinalTitle = finalSettings?.showTitle !== false;
+						await (ev.action as any).setTitle(showFinalTitle ? "Eject All\nDisks" : "", {
+							target: Target.HardwareAndSoftware,
+						});
+						streamDeck.logger.info("Display reset complete");
+					} catch (err) {
+						streamDeck.logger.error(`Error resetting display after eject error: ${err}`);
+					}
 					this.timeouts.delete(timeout);
 				}, 2000);
 				this.timeouts.add(timeout);
@@ -642,12 +648,18 @@ export class EjectAllDisks extends SingletonAction {
 
 				// Reset title and image after 2 seconds
 				const timeout = setTimeout(async () => {
-					await this.updateDiskCount(ev.action);
-					const finalSettings = (await ev.action.getSettings()) as EjectSettings;
-					const showFinalTitle = finalSettings?.showTitle !== false;
-					await (ev.action as any).setTitle(showFinalTitle ? "Eject All\nDisks" : "", {
-						target: Target.HardwareAndSoftware,
-					});
+					try {
+						streamDeck.logger.info("Resetting display after success...");
+						await this.updateDiskCount(ev.action);
+						const finalSettings = (await ev.action.getSettings()) as EjectSettings;
+						const showFinalTitle = finalSettings?.showTitle !== false;
+						await (ev.action as any).setTitle(showFinalTitle ? "Eject All\nDisks" : "", {
+							target: Target.HardwareAndSoftware,
+						});
+						streamDeck.logger.info("Display reset complete");
+					} catch (err) {
+						streamDeck.logger.error(`Error resetting display after success: ${err}`);
+					}
 					this.timeouts.delete(timeout);
 				}, 2000);
 				this.timeouts.add(timeout);
@@ -671,17 +683,18 @@ export class EjectAllDisks extends SingletonAction {
 
 			// Reset title and image after 2 seconds
 			const timeout = setTimeout(async () => {
-				// Update disk count
-				await this.updateDiskCount(ev.action);
-
-				// Get latest settings to check if we should show title
-				const finalSettings = (await ev.action.getSettings()) as EjectSettings;
-				const showFinalTitle = finalSettings?.showTitle !== false;
-
-				await (ev.action as any).setTitle(showFinalTitle ? "Eject All\nDisks" : "", {
-					target: Target.HardwareAndSoftware,
-				});
-
+				try {
+					streamDeck.logger.info("Resetting display after exception...");
+					await this.updateDiskCount(ev.action);
+					const finalSettings = (await ev.action.getSettings()) as EjectSettings;
+					const showFinalTitle = finalSettings?.showTitle !== false;
+					await (ev.action as any).setTitle(showFinalTitle ? "Eject All\nDisks" : "", {
+						target: Target.HardwareAndSoftware,
+					});
+					streamDeck.logger.info("Display reset complete");
+				} catch (err) {
+					streamDeck.logger.error(`Error resetting display after exception: ${err}`);
+				}
 				this.timeouts.delete(timeout);
 			}, 2000);
 			this.timeouts.add(timeout);
