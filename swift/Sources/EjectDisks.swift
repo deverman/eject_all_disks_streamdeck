@@ -157,13 +157,39 @@ func getEjectableVolumes() -> [VolumeInfo] {
 
 // MARK: - Process Discovery
 
+/// Parse lsof output into ProcessInfo array
+nonisolated func parseLsofOutput(_ output: String) -> [ProcessInfo] {
+    // Format: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME
+    var processes: [ProcessInfo] = []
+    var seenPids: Set<String> = []
+
+    for line in output.components(separatedBy: "\n") {
+        let parts = line.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+        // Skip header line and empty lines
+        if parts.count >= 3 && parts[0] != "COMMAND" {
+            let pid = parts[1]
+            // Only add each PID once
+            if !seenPids.contains(pid) {
+                seenPids.insert(pid)
+                processes.append(ProcessInfo(
+                    pid: pid,
+                    command: parts[0],
+                    user: parts[2]
+                ))
+            }
+        }
+    }
+    return processes
+}
+
 /// Get list of processes using a volume path via lsof
+/// Uses lsof +d (single level) for speed - +D recursive is too slow on large volumes
 nonisolated func getBlockingProcesses(path: String) -> [ProcessInfo] {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-    // +D recursively searches the directory, but can be slow
-    // Using the volume path directly is faster
-    process.arguments = ["+D", path]
+    // +d checks single directory level only (fast)
+    // +D would recursively search the entire volume (very slow - minutes on large drives)
+    process.arguments = ["+d", path]
 
     let pipe = Pipe()
     process.standardOutput = pipe
@@ -171,36 +197,22 @@ nonisolated func getBlockingProcesses(path: String) -> [ProcessInfo] {
 
     do {
         try process.run()
+
+        // Set a 5 second timeout just in case
+        let timeoutItem = DispatchWorkItem {
+            process.terminate()
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 5, execute: timeoutItem)
+
         process.waitUntilExit()
+        timeoutItem.cancel()
 
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         guard let output = String(data: data, encoding: .utf8) else {
             return []
         }
 
-        // Parse lsof output
-        // Format: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME
-        var processes: [ProcessInfo] = []
-        var seenPids: Set<String> = []
-
-        for line in output.components(separatedBy: "\n") {
-            let parts = line.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
-            // Skip header line and empty lines
-            if parts.count >= 3 && parts[0] != "COMMAND" {
-                let pid = parts[1]
-                // Only add each PID once
-                if !seenPids.contains(pid) {
-                    seenPids.insert(pid)
-                    processes.append(ProcessInfo(
-                        pid: pid,
-                        command: parts[0],
-                        user: parts[2]
-                    ))
-                }
-            }
-        }
-
-        return processes
+        return parseLsofOutput(output)
     } catch {
         return []
     }
