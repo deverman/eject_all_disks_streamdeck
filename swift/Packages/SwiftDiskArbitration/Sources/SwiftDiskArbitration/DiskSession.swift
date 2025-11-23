@@ -83,7 +83,10 @@ public struct EjectOptions: Sendable {
 /// - Callbacks are bridged to async/await using continuations
 public actor DiskSession {
   /// The underlying DiskArbitration session
-  private let daSession: DASession
+  /// Marked nonisolated(unsafe) to allow cleanup in deinit.
+  /// This is safe because DASession is thread-safe and we only access it
+  /// for cleanup when no other operations can be in flight.
+  private nonisolated(unsafe) let daSession: DASession
 
   /// Dispatch queue for DiskArbitration callbacks
   private let callbackQueue: DispatchQueue

@@ -121,19 +121,20 @@ public enum DiskError: Error, Sendable, CustomStringConvertible {
 extension DiskError {
   /// Known DAReturn status codes
   /// These match the values in DADissenter.h
+  /// DAReturn is Int32, so we use Int32(bitPattern:) to convert from the UInt32 hex representation
   private static let kDAReturnSuccess: DAReturn = 0
-  private static let kDAReturnError: DAReturn = 0xF8DA_0001
-  private static let kDAReturnBusy: DAReturn = 0xF8DA_0002
-  private static let kDAReturnBadArgument: DAReturn = 0xF8DA_0003
-  private static let kDAReturnExclusiveAccess: DAReturn = 0xF8DA_0004
-  private static let kDAReturnNoResources: DAReturn = 0xF8DA_0005
-  private static let kDAReturnNotFound: DAReturn = 0xF8DA_0006
-  private static let kDAReturnNotMounted: DAReturn = 0xF8DA_0007
-  private static let kDAReturnNotPermitted: DAReturn = 0xF8DA_0008
-  private static let kDAReturnNotPrivileged: DAReturn = 0xF8DA_0009
-  private static let kDAReturnNotReady: DAReturn = 0xF8DA_000A
-  private static let kDAReturnNotWritable: DAReturn = 0xF8DA_000B
-  private static let kDAReturnUnsupported: DAReturn = 0xF8DA_000C
+  private static let kDAReturnError: DAReturn = Int32(bitPattern: 0xF8DA_0001)
+  private static let kDAReturnBusy: DAReturn = Int32(bitPattern: 0xF8DA_0002)
+  private static let kDAReturnBadArgument: DAReturn = Int32(bitPattern: 0xF8DA_0003)
+  private static let kDAReturnExclusiveAccess: DAReturn = Int32(bitPattern: 0xF8DA_0004)
+  private static let kDAReturnNoResources: DAReturn = Int32(bitPattern: 0xF8DA_0005)
+  private static let kDAReturnNotFound: DAReturn = Int32(bitPattern: 0xF8DA_0006)
+  private static let kDAReturnNotMounted: DAReturn = Int32(bitPattern: 0xF8DA_0007)
+  private static let kDAReturnNotPermitted: DAReturn = Int32(bitPattern: 0xF8DA_0008)
+  private static let kDAReturnNotPrivileged: DAReturn = Int32(bitPattern: 0xF8DA_0009)
+  private static let kDAReturnNotReady: DAReturn = Int32(bitPattern: 0xF8DA_000A)
+  private static let kDAReturnNotWritable: DAReturn = Int32(bitPattern: 0xF8DA_000B)
+  private static let kDAReturnUnsupported: DAReturn = Int32(bitPattern: 0xF8DA_000C)
 
   /// Creates a DiskError from a DADissenter object
   /// - Parameter dissenter: The dissenter returned from a DiskArbitration callback
