@@ -372,16 +372,18 @@ export class EjectAllDisks extends SingletonAction {
 
 	/**
 	 * Updates the disk count display for a specific action
+	 * @param action The action to update
+	 * @param forceUpdate If true, always update the image even if count hasn't changed (needed after error/success icons)
 	 */
-	private async updateDiskCount(action: Action): Promise<void> {
+	private async updateDiskCount(action: Action, forceUpdate: boolean = false): Promise<void> {
 		try {
 			const newCount = await this.getDiskCount();
 			const currentCount = this.diskCounts.get(action.id) ?? -1;
 
-			// Only update if the count has changed
-			if (newCount !== currentCount) {
+			// Update if the count has changed OR if forceUpdate is true (e.g., after showing error/success icon)
+			if (newCount !== currentCount || forceUpdate) {
 				this.diskCounts.set(action.id, newCount);
-				streamDeck.logger.info(`Disk count changed to: ${newCount} for action ${action.id}`);
+				streamDeck.logger.info(`Disk count updated to: ${newCount} for action ${action.id} (forced: ${forceUpdate})`);
 
 				// Update the icon with the new count
 				await (action as any).setImage(`data:image/svg+xml,${encodeURIComponent(this.createNormalSvg(newCount))}`, {
@@ -493,7 +495,7 @@ export class EjectAllDisks extends SingletonAction {
 				await ev.action.showOk();
 
 				const timeout = setTimeout(async () => {
-					await this.updateDiskCount(ev.action);
+					await this.updateDiskCount(ev.action, true); // Force update to reset icon
 					const finalSettings = (await ev.action.getSettings()) as EjectSettings;
 					const showFinalTitle = finalSettings?.showTitle !== false;
 					await (ev.action as any).setTitle(showFinalTitle ? "Eject All\nDisks" : "", {
@@ -615,7 +617,7 @@ export class EjectAllDisks extends SingletonAction {
 				const timeout = setTimeout(async () => {
 					try {
 						streamDeck.logger.info("Resetting display after error...");
-						await this.updateDiskCount(ev.action);
+						await this.updateDiskCount(ev.action, true); // Force update to reset icon after error
 						const finalSettings = (await ev.action.getSettings()) as EjectSettings;
 						const showFinalTitle = finalSettings?.showTitle !== false;
 						await (ev.action as any).setTitle(showFinalTitle ? "Eject All\nDisks" : "", {
@@ -650,7 +652,7 @@ export class EjectAllDisks extends SingletonAction {
 				const timeout = setTimeout(async () => {
 					try {
 						streamDeck.logger.info("Resetting display after success...");
-						await this.updateDiskCount(ev.action);
+						await this.updateDiskCount(ev.action, true); // Force update to reset icon after success
 						const finalSettings = (await ev.action.getSettings()) as EjectSettings;
 						const showFinalTitle = finalSettings?.showTitle !== false;
 						await (ev.action as any).setTitle(showFinalTitle ? "Eject All\nDisks" : "", {
@@ -685,7 +687,7 @@ export class EjectAllDisks extends SingletonAction {
 			const timeout = setTimeout(async () => {
 				try {
 					streamDeck.logger.info("Resetting display after exception...");
-					await this.updateDiskCount(ev.action);
+					await this.updateDiskCount(ev.action, true); // Force update to reset icon after exception
 					const finalSettings = (await ev.action.getSettings()) as EjectSettings;
 					const showFinalTitle = finalSettings?.showTitle !== false;
 					await (ev.action as any).setTitle(showFinalTitle ? "Eject All\nDisks" : "", {
