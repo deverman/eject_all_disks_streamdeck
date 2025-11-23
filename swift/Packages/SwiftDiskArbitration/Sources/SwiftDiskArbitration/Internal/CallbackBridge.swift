@@ -200,8 +200,10 @@ internal func unmountAndEjectAsync(
   ejectAfterUnmount: Bool,
   force: Bool
 ) async -> DiskOperationResult {
-  // For ejection of external drives, use DADiskEject directly on the whole disk
-  // DADiskEject handles unmounting internally and is more reliable for removable media
+  let startTime = Date()
+
+  // For ejection of external drives, unmount all volumes on the whole disk first,
+  // then eject the physical device
   if ejectAfterUnmount, let wholeDisk = volume.wholeDisk {
     // Get BSD name of whole disk for debugging
     let wholeDiskBSD: String
@@ -213,11 +215,45 @@ internal func unmountAndEjectAsync(
 
     if debugCallbacks {
       print(
-        "[SwiftDiskArbitration] Using DADiskEject on whole disk \(wholeDiskBSD) for volume \(volume.info.name) (\(volume.info.bsdName ?? "?"))"
+        "[SwiftDiskArbitration] Step 1: Unmounting whole disk \(wholeDiskBSD) for volume \(volume.info.name) (\(volume.info.bsdName ?? "?"))"
       )
     }
+
+    // Step 1: Unmount all volumes on the whole disk
+    var unmountOptions = kDADiskUnmountOptionWhole
+    if force {
+      unmountOptions |= kDADiskUnmountOptionForce
+    }
+
+    let unmountResult = await unmountDiskAsync(
+      wholeDisk,
+      options: DADiskUnmountOptions(unmountOptions)
+    )
+
+    guard unmountResult.success else {
+      if debugCallbacks {
+        print("[SwiftDiskArbitration] Unmount failed: \(unmountResult.error?.description ?? "unknown")")
+      }
+      return unmountResult
+    }
+
+    if debugCallbacks {
+      print("[SwiftDiskArbitration] Step 2: Ejecting whole disk \(wholeDiskBSD)")
+    }
+
+    // Step 2: Eject the physical device
     let ejectResult = await ejectDiskAsync(wholeDisk)
-    return ejectResult
+    let totalDuration = Date().timeIntervalSince(startTime)
+
+    if ejectResult.success {
+      return DiskOperationResult(success: true, error: nil, duration: totalDuration)
+    } else {
+      return DiskOperationResult(
+        success: false,
+        error: ejectResult.error,
+        duration: totalDuration
+      )
+    }
   }
 
   // For unmount-only (no physical ejection), use DADiskUnmount
