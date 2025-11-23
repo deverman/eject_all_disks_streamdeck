@@ -165,38 +165,57 @@ This command:
 
 #### Viewing Plugin Logs
 
-To see plugin output and debug messages:
+Plugin logs are stored in the plugin's own directory with automatic rotation (10 files max, 10 MiB each).
 
-**Method 1: Stream Deck Log File**
+**Log Location:**
 
 ```bash
-# macOS - View live logs
-tail -f ~/Library/Logs/com.elgato.StreamDeck/StreamDeck0.log
+~/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin/logs/
 ```
 
-**Method 2: Stream Deck App**
+**View the latest log:**
 
-1. Open Stream Deck application
-2. Go to Preferences → Advanced
-3. Click "Open Plugin Log Folder"
-4. Open the latest log file
+```bash
+cat ~/Library/Application\ Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin/logs/org.deverman.ejectalldisks.0.log
+```
 
-**Method 3: Console.app**
+**Follow logs in real-time:**
 
-1. Open Console.app (Applications → Utilities)
-2. Search for "StreamDeck" or "Eject All Disks"
-3. View real-time logs
+```bash
+tail -f ~/Library/Application\ Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin/logs/org.deverman.ejectalldisks.0.log
+```
+
+**View recent entries:**
+
+```bash
+tail -200 ~/Library/Application\ Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin/logs/org.deverman.ejectalldisks.0.log
+```
+
+Log files are numbered 0-9, with 0 being the most recent. A new log file is created when the plugin starts or when the current file exceeds 10 MiB.
 
 #### What to Look For in Logs
 
 The plugin outputs these key messages:
 
 ```
-Eject All Disks plugin initializing
-Disk count changed to: 2
+# Startup
+Eject All Disks plugin starting...
+Found Swift binary at: /path/to/eject-disks
+
+# Disk monitoring
+Disk count updated to: 2 for action xxx (forced: false)
+
+# Ejection process
 Ejecting disks...
-Disks ejected: [output]
-Error counting disks: [error details]
+Swift eject completed: 2/2 ejected, 0 failed, took 5.23s
+  [OK] DiskName ejected in 5.20s
+SHOWING SUCCESS ICON - All disks ejected successfully
+
+# Errors
+  [FAIL] DiskName: Unmount of disk16 failed...
+Failed to eject "DiskName": error message
+  Blocking processes: AppName (PID: 1234, User: username)
+SHOWING ERROR ICON - Error ejecting disks: ...
 ```
 
 #### Testing the Disk Count Feature
