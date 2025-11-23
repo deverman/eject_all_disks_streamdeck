@@ -200,13 +200,21 @@ internal func unmountAndEjectAsync(
   ejectAfterUnmount: Bool,
   force: Bool
 ) async -> DiskOperationResult {
-  let startTime = Date()
-
   // For ejection of external drives, use DADiskEject directly on the whole disk
   // DADiskEject handles unmounting internally and is more reliable for removable media
   if ejectAfterUnmount, let wholeDisk = volume.wholeDisk {
+    // Get BSD name of whole disk for debugging
+    let wholeDiskBSD: String
+    if let bsdName = DADiskGetBSDName(wholeDisk) {
+      wholeDiskBSD = String(cString: bsdName)
+    } else {
+      wholeDiskBSD = "unknown"
+    }
+
     if debugCallbacks {
-      print("[SwiftDiskArbitration] Using DADiskEject on whole disk for \(volume.info.name)")
+      print(
+        "[SwiftDiskArbitration] Using DADiskEject on whole disk \(wholeDiskBSD) for volume \(volume.info.name) (\(volume.info.bsdName ?? "?"))"
+      )
     }
     let ejectResult = await ejectDiskAsync(wholeDisk)
     return ejectResult
