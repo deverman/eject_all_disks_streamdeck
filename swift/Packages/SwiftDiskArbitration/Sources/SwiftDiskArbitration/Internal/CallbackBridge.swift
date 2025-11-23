@@ -181,7 +181,11 @@ internal func ejectDiskAsync(
 
 // MARK: - Combined Operations
 
-/// Unmounts and optionally ejects a volume using DADiskUnmount.
+/// Unmounts and optionally ejects a volume.
+///
+/// For external drives, uses DADiskEject directly on the whole disk which
+/// handles unmounting internally. This is more reliable than DADiskUnmount
+/// for removable media.
 ///
 /// NOTE: This requires Full Disk Access permission in System Settings.
 /// Grant access to the binary at: System Settings → Privacy & Security → Full Disk Access
@@ -198,43 +202,30 @@ internal func unmountAndEjectAsync(
 ) async -> DiskOperationResult {
   let startTime = Date()
 
-  // Build unmount options
+  // For ejection of external drives, use DADiskEject directly on the whole disk
+  // DADiskEject handles unmounting internally and is more reliable for removable media
+  if ejectAfterUnmount, let wholeDisk = volume.wholeDisk {
+    if debugCallbacks {
+      print("[SwiftDiskArbitration] Using DADiskEject on whole disk for \(volume.info.name)")
+    }
+    let ejectResult = await ejectDiskAsync(wholeDisk)
+    return ejectResult
+  }
+
+  // For unmount-only (no physical ejection), use DADiskUnmount
   var unmountOptions = kDADiskUnmountOptionDefault
   if force {
     unmountOptions |= kDADiskUnmountOptionForce
   }
 
-  // If we have a whole disk and want to eject, unmount all partitions
-  if ejectAfterUnmount, volume.wholeDisk != nil {
-    unmountOptions |= kDADiskUnmountOptionWhole
+  if debugCallbacks {
+    print("[SwiftDiskArbitration] Using DADiskUnmount for \(volume.info.name)")
   }
 
-  // Step 1: Unmount using DADiskUnmount
   let unmountResult = await unmountDiskAsync(
     volume.disk,
     options: DADiskUnmountOptions(unmountOptions)
   )
-
-  guard unmountResult.success else {
-    return unmountResult
-  }
-
-  // Step 2: Eject (if requested and we have a whole disk)
-  if ejectAfterUnmount, let wholeDisk = volume.wholeDisk {
-    let ejectResult = await ejectDiskAsync(wholeDisk)
-    let totalDuration = Date().timeIntervalSince(startTime)
-
-    if ejectResult.success {
-      return DiskOperationResult(success: true, error: nil, duration: totalDuration)
-    } else {
-      // Unmount succeeded but eject failed
-      return DiskOperationResult(
-        success: false,
-        error: ejectResult.error,
-        duration: totalDuration
-      )
-    }
-  }
 
   return unmountResult
 }
