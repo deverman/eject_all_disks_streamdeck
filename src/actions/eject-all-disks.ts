@@ -35,11 +35,18 @@ interface ListOutput {
 	volumes: VolumeInfo[];
 }
 
+interface ProcessInfo {
+	pid: string;
+	command: string;
+	user: string;
+}
+
 interface EjectResult {
 	volume: string;
 	success: boolean;
 	error?: string;
 	duration: number;
+	blockingProcesses?: ProcessInfo[];
 }
 
 interface EjectOutput {
@@ -514,24 +521,50 @@ export class EjectAllDisks extends SingletonAction {
 
 			if (binaryPath) {
 				// Use Swift binary (fastest - uses DiskArbitration framework)
+				// Use verbose mode to get blocking process info on failures
 				try {
-					const { stdout } = await execPromise(`"${binaryPath}" eject`, {
+					const { stdout } = await execPromise(`"${binaryPath}" eject --verbose`, {
 						shell: "/bin/bash",
 						timeout: 30000, // 30 second timeout for ejection
 					});
 
+					// Log the raw output for debugging
+					streamDeck.logger.info(`Swift eject raw output: ${stdout}`);
+
 					ejectResult = JSON.parse(stdout) as EjectOutput;
 					streamDeck.logger.info(
-						`Swift eject completed: ${ejectResult.successCount}/${ejectResult.totalCount} in ${ejectResult.totalDuration.toFixed(2)}s`,
+						`Swift eject completed: ${ejectResult.successCount}/${ejectResult.totalCount} ejected, ${ejectResult.failedCount} failed, took ${ejectResult.totalDuration.toFixed(2)}s`,
 					);
 
-					// Check for failures
+					// Log each individual result
+					for (const result of ejectResult.results) {
+						if (result.success) {
+							streamDeck.logger.info(`  [OK] ${result.volume} ejected in ${result.duration.toFixed(2)}s`);
+						} else {
+							streamDeck.logger.error(`  [FAIL] ${result.volume}: ${result.error}`);
+						}
+					}
+
+					// Check for failures and log detailed info
 					if (ejectResult.failedCount > 0) {
-						const failures = ejectResult.results
-							.filter((r) => !r.success)
-							.map((r) => `${r.volume}: ${r.error}`)
-							.join(", ");
+						const failedResults = ejectResult.results.filter((r) => !r.success);
+
+						// Log detailed info for each failure
+						for (const result of failedResults) {
+							streamDeck.logger.error(`Failed to eject "${result.volume}": ${result.error}`);
+							if (result.blockingProcesses && result.blockingProcesses.length > 0) {
+								const processInfo = result.blockingProcesses
+									.map((p) => `${p.command} (PID: ${p.pid}, User: ${p.user})`)
+									.join(", ");
+								streamDeck.logger.error(`  Blocking processes: ${processInfo}`);
+							}
+						}
+
+						const failures = failedResults.map((r) => `${r.volume}: ${r.error}`).join(", ");
 						ejectError = failures;
+						streamDeck.logger.info(`Setting ejectError: ${ejectError}`);
+					} else {
+						streamDeck.logger.info(`All ${ejectResult.successCount} volumes ejected successfully - no error`);
 					}
 				} catch (error) {
 					streamDeck.logger.warn(`Swift binary eject failed, falling back to shell: ${error}`);
@@ -595,8 +628,9 @@ export class EjectAllDisks extends SingletonAction {
 			}
 
 			// Handle results
+			streamDeck.logger.info(`Decision point: ejectError=${ejectError ? 'SET' : 'null'}, ejectResult=${ejectResult ? 'SET' : 'null'}`);
 			if (ejectError) {
-				streamDeck.logger.error(`Error ejecting disks: ${ejectError}`);
+				streamDeck.logger.error(`SHOWING ERROR ICON - Error ejecting disks: ${ejectError}`);
 
 				// Show error icon
 				await ev.action.setImage(`data:image/svg+xml,${encodeURIComponent(this.createErrorSvg())}`, {
@@ -631,7 +665,7 @@ export class EjectAllDisks extends SingletonAction {
 				}, 2000);
 				this.timeouts.add(timeout);
 			} else {
-				streamDeck.logger.info(`All disks ejected successfully`);
+				streamDeck.logger.info(`SHOWING SUCCESS ICON - All disks ejected successfully`);
 
 				// Show success icon
 				await ev.action.setImage(`data:image/svg+xml,${encodeURIComponent(this.createSuccessSvg())}`, {
