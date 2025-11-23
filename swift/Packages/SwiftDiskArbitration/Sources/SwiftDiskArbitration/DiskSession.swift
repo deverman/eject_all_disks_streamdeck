@@ -8,6 +8,7 @@
 
 import DiskArbitration
 import Foundation
+import Security
 
 /// Result of ejecting multiple volumes
 public struct BatchEjectResult: Sendable {
@@ -94,6 +95,13 @@ public actor DiskSession {
   /// Whether this session is still valid
   private var isValid: Bool = true
 
+  /// Authorization reference for unmount operations
+  /// This is required for unprivileged apps to unmount volumes
+  private nonisolated(unsafe) var authRef: AuthorizationRef?
+
+  /// Whether authorization has been granted
+  public private(set) var isAuthorized: Bool = false
+
   /// Creates a new DiskSession
   /// - Throws: DiskError.sessionCreationFailed if session cannot be created
   public init() throws {
@@ -116,6 +124,81 @@ public actor DiskSession {
     // Unschedule the session from the dispatch queue
     // This prevents callbacks from firing after deallocation
     DASessionSetDispatchQueue(daSession, nil)
+
+    // Free the authorization reference if we have one
+    if let ref = authRef {
+      AuthorizationFree(ref, [])
+    }
+  }
+
+  // MARK: - Authorization
+
+  /// Requests authorization to unmount removable volumes.
+  ///
+  /// This requests the `system.volume.removable.unmount` right from the system.
+  /// A password dialog will be shown to the user if they are an admin.
+  /// Once authorized, the authorization persists for the lifetime of this session.
+  ///
+  /// Call this once before attempting to eject volumes. For Stream Deck plugins,
+  /// call this when the plugin initializes.
+  ///
+  /// - Throws: DiskError.authorizationFailed if authorization fails
+  /// - Throws: DiskError.authorizationCancelled if user cancels the dialog
+  public func requestAuthorization() throws {
+    // Create authorization reference
+    var authRefLocal: AuthorizationRef?
+    var status = AuthorizationCreate(nil, nil, [], &authRefLocal)
+
+    guard status == errAuthorizationSuccess, let ref = authRefLocal else {
+      throw DiskError.authorizationFailed(status: status)
+    }
+
+    // Request the specific right for unmounting removable volumes
+    // This is what Finder and diskutil do behind the scenes
+    let rightName = "system.volume.removable.unmount"
+
+    status = rightName.withCString { namePtr in
+      var rightItem = AuthorizationItem(
+        name: namePtr,
+        valueLength: 0,
+        value: nil,
+        flags: 0
+      )
+
+      var rights = withUnsafeMutablePointer(to: &rightItem) { ptr in
+        AuthorizationRights(count: 1, items: ptr)
+      }
+
+      // Flags to allow user interaction and extend rights
+      let flags: AuthorizationFlags = [
+        .interactionAllowed,  // Show password dialog if needed
+        .extendRights,  // Extend authorization to new rights
+        .preAuthorize  // Authorize before actually needing it
+      ]
+
+      return AuthorizationCopyRights(ref, &rights, nil, flags, nil)
+    }
+
+    if status == errAuthorizationSuccess {
+      self.authRef = ref
+      self.isAuthorized = true
+    } else if status == errAuthorizationCanceled {
+      AuthorizationFree(ref, [])
+      throw DiskError.authorizationCancelled
+    } else {
+      AuthorizationFree(ref, [])
+      throw DiskError.authorizationFailed(status: status)
+    }
+  }
+
+  /// Checks if we're running with root privileges (sudo)
+  public nonisolated var isRunningAsRoot: Bool {
+    return geteuid() == 0
+  }
+
+  /// Checks if authorization is needed (not root and not already authorized)
+  public var needsAuthorization: Bool {
+    return !isRunningAsRoot && !isAuthorized
   }
 
   // MARK: - Volume Enumeration

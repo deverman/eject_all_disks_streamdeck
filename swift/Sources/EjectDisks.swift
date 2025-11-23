@@ -141,9 +141,39 @@ nonisolated func getBlockingProcesses(path: String) -> [ProcessInfoOutput] {
 
 // MARK: - Fast Native Ejection (DADiskUnmount)
 
-/// Eject all volumes using native DiskArbitration API (10x faster than diskutil)
+/// Eject all volumes using native DiskArbitration API (faster than diskutil)
+/// Automatically requests authorization if not running as root.
 func ejectAllVolumesNative(force: Bool = false, verbose: Bool = false) async -> EjectOutput {
     let session = DiskSession.shared
+
+    // Request authorization if not running as root
+    // This prompts for password on first use, then persists for the session
+    if await session.needsAuthorization {
+        do {
+            try await session.requestAuthorization()
+        } catch {
+            // If authorization fails, return error for all volumes
+            let volumes = await session.enumerateEjectableVolumes()
+            let results = volumes.map { volume in
+                EjectResult(
+                    volume: volume.info.name,
+                    success: false,
+                    error: "Authorization required: \(error.localizedDescription)",
+                    duration: 0,
+                    blockingProcesses: nil
+                )
+            }
+            return EjectOutput(
+                totalCount: volumes.count,
+                successCount: 0,
+                failedCount: volumes.count,
+                results: results,
+                totalDuration: 0,
+                method: "native"
+            )
+        }
+    }
+
     let volumes = await session.enumerateEjectableVolumes()
     let startTime = Date()
 
