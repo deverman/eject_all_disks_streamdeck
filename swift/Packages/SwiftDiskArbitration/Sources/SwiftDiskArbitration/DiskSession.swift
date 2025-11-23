@@ -155,28 +155,37 @@ public actor DiskSession {
 
     // Request the specific right for unmounting removable volumes
     // This is what Finder and diskutil do behind the scenes
-    let rightName = "system.volume.removable.unmount"
+    // Use kAuthorizationRightExecute pattern with custom right name
+    let rightName: StaticString = "system.volume.removable.unmount"
 
-    status = rightName.withCString { namePtr in
-      var rightItem = AuthorizationItem(
-        name: namePtr,
-        valueLength: 0,
-        value: nil,
-        flags: 0
-      )
-
-      var rights = withUnsafeMutablePointer(to: &rightItem) { ptr in
-        AuthorizationRights(count: 1, items: ptr)
+    status = rightName.withUTF8Buffer { buffer in
+      // Create null-terminated string
+      var cString = [CChar](repeating: 0, count: buffer.count + 1)
+      for (i, byte) in buffer.enumerated() {
+        cString[i] = CChar(bitPattern: byte)
       }
 
-      // Flags to allow user interaction and extend rights
-      let flags: AuthorizationFlags = [
-        .interactionAllowed,  // Show password dialog if needed
-        .extendRights,  // Extend authorization to new rights
-        .preAuthorize  // Authorize before actually needing it
-      ]
+      return cString.withUnsafeBufferPointer { cStringPtr in
+        var rightItem = AuthorizationItem(
+          name: cStringPtr.baseAddress!,
+          valueLength: 0,
+          value: nil,
+          flags: 0
+        )
 
-      return AuthorizationCopyRights(ref, &rights, nil, flags, nil)
+        return withUnsafeMutablePointer(to: &rightItem) { rightItemPtr in
+          var rights = AuthorizationRights(count: 1, items: rightItemPtr)
+
+          // Flags to allow user interaction and extend rights
+          let flags: AuthorizationFlags = [
+            .interactionAllowed,  // Show password dialog if needed
+            .extendRights,  // Extend authorization to new rights
+            .preAuthorize  // Authorize before actually needing it
+          ]
+
+          return AuthorizationCopyRights(ref, &rights, nil, flags, nil)
+        }
+      }
     }
 
     if status == errAuthorizationSuccess {
