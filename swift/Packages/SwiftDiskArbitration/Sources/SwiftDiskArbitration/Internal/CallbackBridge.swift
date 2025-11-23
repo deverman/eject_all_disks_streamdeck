@@ -65,7 +65,7 @@ internal final class EjectCallbackContext {
 
 /// Enable debug output for troubleshooting
 /// Set to true to see detailed callback information
-internal let debugCallbacks = true  // Enabled for diagnosing ejection issues
+internal let debugCallbacks = false  // Set to true for debugging
 
 /// C callback for DADiskUnmount
 /// This function has @convention(c) semantics and cannot capture Swift context directly
