@@ -193,6 +193,32 @@ nonisolated func ejectWithDiskutilForce(path: String) -> (success: Bool, error: 
     }
 }
 
+/// Eject a single volume using diskutil eject (more reliable than NSWorkspace)
+nonisolated func ejectVolumeWithDiskutilSync(path: String) -> (success: Bool, error: String?) {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
+    process.arguments = ["eject", path]
+
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = pipe
+
+    do {
+        try process.run()
+        process.waitUntilExit()
+
+        if process.terminationStatus == 0 {
+            return (true, nil)
+        } else {
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8) ?? "Unknown error"
+            return (false, output.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+    } catch {
+        return (false, error.localizedDescription)
+    }
+}
+
 /// Eject a single volume using diskutil (for benchmarking comparison)
 func ejectVolumeWithDiskutil(path: String) -> (success: Bool, error: String?, duration: Double) {
     let startTime = Date()
@@ -237,12 +263,14 @@ func ejectAllVolumes(volumes: [VolumeInfo], force: Bool = false) async -> EjectO
     }
 
     // Use TaskGroup for parallel ejection with true concurrency
+    // Using diskutil eject instead of NSWorkspace because NSWorkspace.unmountAndEjectDevice
+    // incorrectly returns error -47 for volumes that aren't actually busy
     let results = await withTaskGroup(of: EjectResult.self, returning: [EjectResult].self) { group in
         for volume in volumes {
             group.addTask {
                 let volumeStartTime = Date()
-                // Use the nonisolated sync version for true parallelism
-                let (success, error) = ejectVolumeSyncUnsafe(path: volume.path, force: force)
+                // Use diskutil eject for reliable ejection
+                let (success, error) = ejectVolumeWithDiskutilSync(path: volume.path)
                 let duration = Date().timeIntervalSince(volumeStartTime)
 
                 return EjectResult(
