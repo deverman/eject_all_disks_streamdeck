@@ -1,8 +1,10 @@
 //
 //  EjectDisks.swift
-//  Fast disk ejection using native macOS APIs
+//  Fast disk ejection using diskutil with Swift 6 concurrency
 //
-//  Uses NSWorkspace for reliable parallel ejection with Swift 6 concurrency
+//  Uses diskutil eject for reliable parallel ejection operations.
+//  Note: NSWorkspace.unmountAndEjectDevice was found to incorrectly return
+//  error -47 for non-busy volumes, so we use diskutil instead.
 //
 
 import ArgumentParser
@@ -252,49 +254,6 @@ nonisolated func ejectVolumeWithDiskutilSync(path: String, verbose: Bool = false
     }
 }
 
-/// Eject a single volume using NSWorkspace (backup method)
-/// Note: NSWorkspace.unmountAndEjectDevice may incorrectly return error -47 for non-busy volumes
-nonisolated func ejectVolumeSyncUnsafe(path: String, force: Bool = false) -> (success: Bool, error: String?) {
-    let url = URL(fileURLWithPath: path)
-    do {
-        // NSWorkspace.shared is thread-safe for this operation
-        try NSWorkspace.shared.unmountAndEjectDevice(at: url)
-        return (true, nil)
-    } catch {
-        // If regular eject fails and force is requested, try diskutil
-        if force {
-            return ejectWithDiskutilForce(path: path)
-        }
-        return (false, error.localizedDescription)
-    }
-}
-
-/// Force eject using diskutil unmount force (fallback for busy volumes)
-nonisolated func ejectWithDiskutilForce(path: String) -> (success: Bool, error: String?) {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
-    process.arguments = ["unmount", "force", path]
-
-    let pipe = Pipe()
-    process.standardOutput = pipe
-    process.standardError = pipe
-
-    do {
-        try process.run()
-        process.waitUntilExit()
-
-        if process.terminationStatus == 0 {
-            return (true, nil)
-        } else {
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let output = String(data: data, encoding: .utf8) ?? "Unknown error"
-            return (false, output.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-    } catch {
-        return (false, error.localizedDescription)
-    }
-}
-
 /// Eject a single volume using diskutil (for benchmarking comparison)
 func ejectVolumeWithDiskutil(path: String) -> (success: Bool, error: String?, duration: Double) {
     let startTime = Date()
@@ -449,10 +408,11 @@ func printJSON<T: Encodable>(_ value: T, compact: Bool = false) {
 struct EjectDisks: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "eject-disks",
-        abstract: "Fast disk ejection using native macOS APIs",
+        abstract: "Fast disk ejection using diskutil with Swift concurrency",
         discussion: """
             A high-performance tool for ejecting external disks on macOS.
-            Uses NSWorkspace with Swift concurrency for parallel ejection operations.
+            Uses diskutil eject with Swift concurrency for parallel ejection operations.
+            Includes diagnostics to identify processes blocking disk ejection.
             """,
         version: "2.1.0",
         subcommands: [List.self, Count.self, Eject.self, Diagnose.self, Benchmark.self],
@@ -493,9 +453,9 @@ extension EjectDisks {
         static let configuration = CommandConfiguration(
             abstract: "Eject all external volumes",
             discussion: """
-                Ejects all ejectable volumes in parallel using native macOS APIs.
+                Ejects all ejectable volumes in parallel using diskutil.
                 Returns a JSON object with results for each volume.
-                When verbose mode is enabled, shows which processes are blocking ejection on failure.
+                Shows which processes are blocking ejection on failure.
                 """
         )
 
@@ -612,7 +572,7 @@ extension EjectDisks {
             if eject && !volumes.isEmpty {
                 print("\n--- Ejection Benchmark ---")
                 print("WARNING: This will eject all \(volumes.count) volume(s)!")
-                print("Ejecting with Swift (NSWorkspace)...")
+                print("Ejecting with parallel diskutil...")
 
                 let swiftOutput = await ejectAllVolumes(volumes: volumes, force: false)
                 swiftTime = swiftOutput.totalDuration

@@ -74,11 +74,14 @@ eject_all_disks_streamdeck/
 ├── src/                    # TypeScript source files
 │   ├── actions/            # Action implementations
 │   └── plugin.ts           # Plugin entry point
+├── swift/                  # Swift CLI binary source
+│   ├── Sources/            # Swift source files
+│   └── Package.swift       # Swift package configuration
 ├── org.deverman.ejectalldisks.sdPlugin/  # Plugin resources
-│   ├── bin/                # Compiled JavaScript
+│   ├── bin/                # Compiled JS + Swift binary
 │   ├── ui/                 # Property Inspector HTML
 │   ├── imgs/               # Icons and images
-│   ├── libs/               # Library files
+│   ├── logs/               # Plugin log files (auto-created)
 │   └── manifest.json       # Plugin configuration
 ├── dist/                   # Packaged plugin (.streamDeckPlugin)
 └── README.md               # This file
@@ -348,35 +351,47 @@ Settings are implemented using:
 - Property Inspector for UI controls
 - WebSocket communication between UI and plugin
 
-#### Shell Command
+#### Disk Ejection
 
-The plugin uses a secure shell command to safely eject disks:
+The plugin uses a Swift CLI binary for fast parallel disk ejection:
 
+**Primary method (Swift binary):**
+- Uses `diskutil eject` for each volume
+- Runs ejections in parallel using Swift concurrency
+- Reports blocking processes when ejection fails
+- Located at `bin/eject-disks` in the plugin directory
+
+**Fallback method (Shell script):**
+If the Swift binary is unavailable, the plugin falls back to a shell script that runs `diskutil eject` for each volume in parallel.
+
+**Diagnostic commands:**
 ```bash
-IFS=$'\n'
-disks=$(diskutil list external | grep -o -E '/dev/disk[0-9]+')
-for disk in $disks; do
-  # Validate disk path format for security
-  if [[ "$disk" =~ ^/dev/disk[0-9]+$ ]]; then
-    diskutil unmountDisk "$disk"
-  else
-    echo "Invalid disk path: $disk" >&2
-  fi
-done
-```
+# List ejectable volumes
+./eject-disks list
 
-This implementation includes security measures like path validation and proper error handling.
+# Show what processes are blocking each volume
+./eject-disks diagnose
+
+# Eject all volumes with verbose output
+./eject-disks eject --verbose
+```
 
 ## Troubleshooting
 
 ### Common Issues
 
 1. **Button shows error state:**
-    - Ensure disks aren't currently in use by applications
-    - Check for file operations in progress
-    - Try ejecting through Finder first to see specific error messages
+    - Check the plugin logs for which process is blocking ejection
+    - Common blockers: backup apps (Arq, Time Machine), file sync apps (Dropbox), automation tools (Hazel)
+    - Run `./eject-disks diagnose` to see blocking processes
+    - Try pausing backup/sync apps before ejecting
 
-2. **Settings not saving:**
+2. **Disk won't eject but Finder can eject it:**
+    - Finder sends a "please close files" notification to apps before ejecting
+    - `diskutil eject` doesn't send this notification
+    - Pause or quit the blocking application, then try again
+
+3. **Settings not saving:**
     - Restart Stream Deck software
     - Check permissions
 
