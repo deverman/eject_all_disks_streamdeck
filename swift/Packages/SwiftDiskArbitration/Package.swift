@@ -20,11 +20,8 @@ let package = Package(
     targets: [
         .target(
             name: "SwiftDiskArbitration",
-            dependencies: [],
-            swiftSettings: [
-                .enableUpcomingFeature("StrictConcurrency"),
-                .enableExperimentalFeature("StrictConcurrency"),
-            ]
+            dependencies: []
+            // Note: StrictConcurrency is enabled by default in Swift 6
         ),
         .testTarget(
             name: "SwiftDiskArbitrationTests",

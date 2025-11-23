@@ -39,20 +39,20 @@
 /// Enumerates all ejectable volumes using the shared session.
 /// - Returns: Array of volumes that can be ejected
 public func enumerateEjectableVolumes() -> [Volume] {
-    return DiskSession.shared.enumerateEjectableVolumes()
+  return DiskSession.shared.enumerateEjectableVolumes()
 }
 
 /// Returns the count of ejectable volumes.
 /// - Returns: Number of external/ejectable volumes currently mounted
 public func ejectableVolumeCount() -> Int {
-    return DiskSession.shared.ejectableVolumeCount()
+  return DiskSession.shared.ejectableVolumeCount()
 }
 
 /// Ejects all external volumes using the shared session.
 /// - Parameter options: Options for the eject operation
 /// - Returns: Result of the batch operation
 public func ejectAllExternalVolumes(options: EjectOptions = .default) async -> BatchEjectResult {
-    return await DiskSession.shared.ejectAllExternal(options: options)
+  return await DiskSession.shared.ejectAllExternal(options: options)
 }
 
 /// Ejects a single volume by path.
@@ -60,16 +60,18 @@ public func ejectAllExternalVolumes(options: EjectOptions = .default) async -> B
 ///   - path: Path to the volume mount point
 ///   - options: Options for the eject operation
 /// - Returns: Result of the operation
-public func ejectVolume(at path: String, options: EjectOptions = .default) async -> DiskOperationResult {
-    return await DiskSession.shared.unmount(path: path, options: options)
+public func ejectVolume(at path: String, options: EjectOptions = .default) async
+  -> DiskOperationResult
+{
+  return await DiskSession.shared.unmount(path: path, options: options)
 }
 
 // MARK: - Version Info
 
 /// Library version information
 public enum SwiftDiskArbitrationVersion {
-    public static let major = 1
-    public static let minor = 0
-    public static let patch = 0
-    public static var string: String { "\(major).\(minor).\(patch)" }
+  public static let major = 1
+  public static let minor = 0
+  public static let patch = 0
+  public static var string: String { "\(major).\(minor).\(patch)" }
 }

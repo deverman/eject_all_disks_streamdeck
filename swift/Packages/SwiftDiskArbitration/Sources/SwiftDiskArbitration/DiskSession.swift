@@ -11,61 +11,61 @@ import Foundation
 
 /// Result of ejecting multiple volumes
 public struct BatchEjectResult: Sendable {
-    /// Total number of volumes processed
-    public let totalCount: Int
+  /// Total number of volumes processed
+  public let totalCount: Int
 
-    /// Number of successfully ejected volumes
-    public let successCount: Int
+  /// Number of successfully ejected volumes
+  public let successCount: Int
 
-    /// Number of failed ejections
-    public let failedCount: Int
+  /// Number of failed ejections
+  public let failedCount: Int
 
-    /// Individual results for each volume
-    public let results: [SingleEjectResult]
+  /// Individual results for each volume
+  public let results: [SingleEjectResult]
 
-    /// Total duration for all operations
-    public let totalDuration: TimeInterval
+  /// Total duration for all operations
+  public let totalDuration: TimeInterval
 }
 
 /// Result of ejecting a single volume
 public struct SingleEjectResult: Sendable, Codable {
-    /// Name of the volume
-    public let volumeName: String
+  /// Name of the volume
+  public let volumeName: String
 
-    /// Path to the volume
-    public let volumePath: String
+  /// Path to the volume
+  public let volumePath: String
 
-    /// Whether the ejection succeeded
-    public let success: Bool
+  /// Whether the ejection succeeded
+  public let success: Bool
 
-    /// Error message if failed
-    public let errorMessage: String?
+  /// Error message if failed
+  public let errorMessage: String?
 
-    /// Duration of this specific ejection
-    public let duration: TimeInterval
+  /// Duration of this specific ejection
+  public let duration: TimeInterval
 }
 
 /// Options for unmount/eject operations
 public struct EjectOptions: Sendable {
-    /// Force unmount even if files are open (may cause data loss)
-    public var force: Bool
+  /// Force unmount even if files are open (may cause data loss)
+  public var force: Bool
 
-    /// Eject the physical device after unmounting (for USB drives, etc.)
-    public var ejectPhysicalDevice: Bool
+  /// Eject the physical device after unmounting (for USB drives, etc.)
+  public var ejectPhysicalDevice: Bool
 
-    /// Default options: no force, eject physical device
-    public static let `default` = EjectOptions(force: false, ejectPhysicalDevice: true)
+  /// Default options: no force, eject physical device
+  public static let `default` = EjectOptions(force: false, ejectPhysicalDevice: true)
 
-    /// Unmount only (don't physically eject)
-    public static let unmountOnly = EjectOptions(force: false, ejectPhysicalDevice: false)
+  /// Unmount only (don't physically eject)
+  public static let unmountOnly = EjectOptions(force: false, ejectPhysicalDevice: false)
 
-    /// Force eject (may cause data loss if files are open)
-    public static let forceEject = EjectOptions(force: true, ejectPhysicalDevice: true)
+  /// Force eject (may cause data loss if files are open)
+  public static let forceEject = EjectOptions(force: true, ejectPhysicalDevice: true)
 
-    public init(force: Bool = false, ejectPhysicalDevice: Bool = true) {
-        self.force = force
-        self.ejectPhysicalDevice = ejectPhysicalDevice
-    }
+  public init(force: Bool = false, ejectPhysicalDevice: Bool = true) {
+    self.force = force
+    self.ejectPhysicalDevice = ejectPhysicalDevice
+  }
 }
 
 /// Actor that manages DiskArbitration session and provides async APIs.
@@ -82,213 +82,220 @@ public struct EjectOptions: Sendable {
 /// - The underlying DASession is scheduled on a dedicated dispatch queue
 /// - Callbacks are bridged to async/await using continuations
 public actor DiskSession {
-    /// The underlying DiskArbitration session
-    private let daSession: DASession
+  /// The underlying DiskArbitration session
+  private let daSession: DASession
 
-    /// Dispatch queue for DiskArbitration callbacks
-    private let callbackQueue: DispatchQueue
+  /// Dispatch queue for DiskArbitration callbacks
+  private let callbackQueue: DispatchQueue
 
-    /// Whether this session is still valid
-    private var isValid: Bool = true
+  /// Whether this session is still valid
+  private var isValid: Bool = true
 
-    /// Creates a new DiskSession
-    /// - Throws: DiskError.sessionCreationFailed if session cannot be created
-    public init() throws {
-        guard let session = DASessionCreate(kCFAllocatorDefault) else {
-            throw DiskError.sessionCreationFailed
-        }
+  /// Creates a new DiskSession
+  /// - Throws: DiskError.sessionCreationFailed if session cannot be created
+  public init() throws {
+    guard let session = DASessionCreate(kCFAllocatorDefault) else {
+      throw DiskError.sessionCreationFailed
+    }
 
-        self.daSession = session
-        self.callbackQueue = DispatchQueue(
-            label: "com.swiftdiskarbitration.callback",
-            qos: .userInitiated
+    self.daSession = session
+    self.callbackQueue = DispatchQueue(
+      label: "com.swiftdiskarbitration.callback",
+      qos: .userInitiated
+    )
+
+    // Schedule the session on our callback queue
+    // This is required for callbacks to be invoked
+    DASessionSetDispatchQueue(session, callbackQueue)
+  }
+
+  deinit {
+    // Unschedule the session from the dispatch queue
+    // This prevents callbacks from firing after deallocation
+    DASessionSetDispatchQueue(daSession, nil)
+  }
+
+  // MARK: - Volume Enumeration
+
+  /// Enumerates all ejectable external volumes.
+  ///
+  /// Returns volumes that are external, ejectable, or removable.
+  /// Each volume includes a cached DADisk reference for fast ejection.
+  ///
+  /// - Returns: Array of ejectable volumes
+  public nonisolated func enumerateEjectableVolumes() -> [Volume] {
+    // Volume enumeration is read-only and thread-safe
+    // We can call it without actor isolation
+    return Volume.enumerateEjectableVolumes(session: daSession)
+  }
+
+  /// Returns the count of ejectable volumes (faster than full enumeration)
+  public nonisolated func ejectableVolumeCount() -> Int {
+    return enumerateEjectableVolumes().count
+  }
+
+  // MARK: - Single Volume Operations
+
+  /// Unmounts a single volume.
+  ///
+  /// - Parameters:
+  ///   - volume: The volume to unmount
+  ///   - options: Unmount/eject options
+  /// - Returns: Result of the operation
+  public func unmount(_ volume: Volume, options: EjectOptions = .default) async
+    -> DiskOperationResult
+  {
+    guard isValid else {
+      return DiskOperationResult(success: false, error: .sessionCreationFailed, duration: 0)
+    }
+
+    return await unmountAndEjectAsync(
+      volume,
+      ejectAfterUnmount: options.ejectPhysicalDevice,
+      force: options.force
+    )
+  }
+
+  /// Unmounts a volume by path.
+  ///
+  /// - Parameters:
+  ///   - path: Path to the volume (e.g., "/Volumes/MyDrive")
+  ///   - options: Unmount/eject options
+  /// - Returns: Result of the operation
+  public func unmount(path: String, options: EjectOptions = .default) async -> DiskOperationResult {
+    guard isValid else {
+      return DiskOperationResult(success: false, error: .sessionCreationFailed, duration: 0)
+    }
+
+    let url = URL(fileURLWithPath: path)
+    guard let disk = DADiskCreateFromVolumePath(kCFAllocatorDefault, daSession, url as CFURL) else {
+      return DiskOperationResult(
+        success: false, error: .notFound(message: "Volume not found at \(path)"), duration: 0)
+    }
+
+    // Create a temporary Volume object for the operation
+    let info = VolumeInfo(
+      name: url.lastPathComponent,
+      path: path,
+      bsdName: DADiskGetBSDName(disk).map { String(cString: $0) }
+    )
+    let volume = Volume(info: info, disk: disk)
+
+    return await unmount(volume, options: options)
+  }
+
+  // MARK: - Batch Operations
+
+  /// Ejects all provided volumes in parallel.
+  ///
+  /// Uses Swift concurrency TaskGroup for true parallel execution.
+  /// Each volume is unmounted (and optionally ejected) concurrently.
+  ///
+  /// - Parameters:
+  ///   - volumes: Array of volumes to eject
+  ///   - options: Unmount/eject options applied to all volumes
+  /// - Returns: Batch result with individual results for each volume
+  public func ejectAll(_ volumes: [Volume], options: EjectOptions = .default) async
+    -> BatchEjectResult
+  {
+    let startTime = Date()
+
+    guard !volumes.isEmpty else {
+      return BatchEjectResult(
+        totalCount: 0,
+        successCount: 0,
+        failedCount: 0,
+        results: [],
+        totalDuration: 0
+      )
+    }
+
+    guard isValid else {
+      let results = volumes.map { volume in
+        SingleEjectResult(
+          volumeName: volume.info.name,
+          volumePath: volume.info.path,
+          success: false,
+          errorMessage: "Session is invalid",
+          duration: 0
         )
-
-        // Schedule the session on our callback queue
-        // This is required for callbacks to be invoked
-        DASessionSetDispatchQueue(session, callbackQueue)
+      }
+      return BatchEjectResult(
+        totalCount: volumes.count,
+        successCount: 0,
+        failedCount: volumes.count,
+        results: results,
+        totalDuration: 0
+      )
     }
 
-    deinit {
-        // Unschedule the session from the dispatch queue
-        // This prevents callbacks from firing after deallocation
-        DASessionSetDispatchQueue(daSession, nil)
-    }
-
-    // MARK: - Volume Enumeration
-
-    /// Enumerates all ejectable external volumes.
-    ///
-    /// Returns volumes that are external, ejectable, or removable.
-    /// Each volume includes a cached DADisk reference for fast ejection.
-    ///
-    /// - Returns: Array of ejectable volumes
-    public nonisolated func enumerateEjectableVolumes() -> [Volume] {
-        // Volume enumeration is read-only and thread-safe
-        // We can call it without actor isolation
-        return Volume.enumerateEjectableVolumes(session: daSession)
-    }
-
-    /// Returns the count of ejectable volumes (faster than full enumeration)
-    public nonisolated func ejectableVolumeCount() -> Int {
-        return enumerateEjectableVolumes().count
-    }
-
-    // MARK: - Single Volume Operations
-
-    /// Unmounts a single volume.
-    ///
-    /// - Parameters:
-    ///   - volume: The volume to unmount
-    ///   - options: Unmount/eject options
-    /// - Returns: Result of the operation
-    public func unmount(_ volume: Volume, options: EjectOptions = .default) async -> DiskOperationResult {
-        guard isValid else {
-            return DiskOperationResult(success: false, error: .sessionCreationFailed, duration: 0)
+    // Execute all ejections in parallel using TaskGroup
+    let results = await withTaskGroup(
+      of: SingleEjectResult.self, returning: [SingleEjectResult].self
+    ) { group in
+      for volume in volumes {
+        group.addTask {
+          let result = await self.unmount(volume, options: options)
+          return SingleEjectResult(
+            volumeName: volume.info.name,
+            volumePath: volume.info.path,
+            success: result.success,
+            errorMessage: result.error?.description,
+            duration: result.duration
+          )
         }
+      }
 
-        return await unmountAndEjectAsync(
-            volume,
-            ejectAfterUnmount: options.ejectPhysicalDevice,
-            force: options.force
-        )
+      var collected: [SingleEjectResult] = []
+      collected.reserveCapacity(volumes.count)
+      for await result in group {
+        collected.append(result)
+      }
+      return collected
     }
 
-    /// Unmounts a volume by path.
-    ///
-    /// - Parameters:
-    ///   - path: Path to the volume (e.g., "/Volumes/MyDrive")
-    ///   - options: Unmount/eject options
-    /// - Returns: Result of the operation
-    public func unmount(path: String, options: EjectOptions = .default) async -> DiskOperationResult {
-        guard isValid else {
-            return DiskOperationResult(success: false, error: .sessionCreationFailed, duration: 0)
-        }
+    let totalDuration = Date().timeIntervalSince(startTime)
+    let successCount = results.filter(\.success).count
 
-        let url = URL(fileURLWithPath: path)
-        guard let disk = DADiskCreateFromVolumePath(kCFAllocatorDefault, daSession, url as CFURL) else {
-            return DiskOperationResult(success: false, error: .notFound(message: "Volume not found at \(path)"), duration: 0)
-        }
+    return BatchEjectResult(
+      totalCount: volumes.count,
+      successCount: successCount,
+      failedCount: volumes.count - successCount,
+      results: results,
+      totalDuration: totalDuration
+    )
+  }
 
-        // Create a temporary Volume object for the operation
-        let info = VolumeInfo(
-            name: url.lastPathComponent,
-            path: path,
-            bsdName: DADiskGetBSDName(disk).map { String(cString: $0) }
-        )
-        let volume = Volume(info: info, disk: disk)
+  /// Ejects all currently mounted external volumes.
+  ///
+  /// Convenience method that combines enumeration and ejection.
+  ///
+  /// - Parameter options: Unmount/eject options
+  /// - Returns: Batch result with individual results for each volume
+  public func ejectAllExternal(options: EjectOptions = .default) async -> BatchEjectResult {
+    let volumes = enumerateEjectableVolumes()
+    return await ejectAll(volumes, options: options)
+  }
 
-        return await unmount(volume, options: options)
-    }
+  // MARK: - Session Management
 
-    // MARK: - Batch Operations
-
-    /// Ejects all provided volumes in parallel.
-    ///
-    /// Uses Swift concurrency TaskGroup for true parallel execution.
-    /// Each volume is unmounted (and optionally ejected) concurrently.
-    ///
-    /// - Parameters:
-    ///   - volumes: Array of volumes to eject
-    ///   - options: Unmount/eject options applied to all volumes
-    /// - Returns: Batch result with individual results for each volume
-    public func ejectAll(_ volumes: [Volume], options: EjectOptions = .default) async -> BatchEjectResult {
-        let startTime = Date()
-
-        guard !volumes.isEmpty else {
-            return BatchEjectResult(
-                totalCount: 0,
-                successCount: 0,
-                failedCount: 0,
-                results: [],
-                totalDuration: 0
-            )
-        }
-
-        guard isValid else {
-            let results = volumes.map { volume in
-                SingleEjectResult(
-                    volumeName: volume.info.name,
-                    volumePath: volume.info.path,
-                    success: false,
-                    errorMessage: "Session is invalid",
-                    duration: 0
-                )
-            }
-            return BatchEjectResult(
-                totalCount: volumes.count,
-                successCount: 0,
-                failedCount: volumes.count,
-                results: results,
-                totalDuration: 0
-            )
-        }
-
-        // Execute all ejections in parallel using TaskGroup
-        let results = await withTaskGroup(of: SingleEjectResult.self, returning: [SingleEjectResult].self) { group in
-            for volume in volumes {
-                group.addTask {
-                    let result = await self.unmount(volume, options: options)
-                    return SingleEjectResult(
-                        volumeName: volume.info.name,
-                        volumePath: volume.info.path,
-                        success: result.success,
-                        errorMessage: result.error?.description,
-                        duration: result.duration
-                    )
-                }
-            }
-
-            var collected: [SingleEjectResult] = []
-            collected.reserveCapacity(volumes.count)
-            for await result in group {
-                collected.append(result)
-            }
-            return collected
-        }
-
-        let totalDuration = Date().timeIntervalSince(startTime)
-        let successCount = results.filter(\.success).count
-
-        return BatchEjectResult(
-            totalCount: volumes.count,
-            successCount: successCount,
-            failedCount: volumes.count - successCount,
-            results: results,
-            totalDuration: totalDuration
-        )
-    }
-
-    /// Ejects all currently mounted external volumes.
-    ///
-    /// Convenience method that combines enumeration and ejection.
-    ///
-    /// - Parameter options: Unmount/eject options
-    /// - Returns: Batch result with individual results for each volume
-    public func ejectAllExternal(options: EjectOptions = .default) async -> BatchEjectResult {
-        let volumes = enumerateEjectableVolumes()
-        return await ejectAll(volumes, options: options)
-    }
-
-    // MARK: - Session Management
-
-    /// Invalidates this session. No further operations will succeed.
-    public func invalidate() {
-        isValid = false
-        DASessionSetDispatchQueue(daSession, nil)
-    }
+  /// Invalidates this session. No further operations will succeed.
+  public func invalidate() {
+    isValid = false
+    DASessionSetDispatchQueue(daSession, nil)
+  }
 }
 
 // MARK: - Shared Session
 
 extension DiskSession {
-    /// Shared session for convenience.
-    /// Use a dedicated session for long-running applications that need precise lifecycle control.
-    public static let shared: DiskSession = {
-        do {
-            return try DiskSession()
-        } catch {
-            fatalError("Failed to create shared DiskSession: \(error)")
-        }
-    }()
+  /// Shared session for convenience.
+  /// Use a dedicated session for long-running applications that need precise lifecycle control.
+  public static let shared: DiskSession = {
+    do {
+      return try DiskSession()
+    } catch {
+      fatalError("Failed to create shared DiskSession: \(error)")
+    }
+  }()
 }
