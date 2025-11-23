@@ -11,6 +11,7 @@
 //  - Each continuation is guaranteed to resume exactly once
 //
 
+import AppKit
 import DiskArbitration
 import Foundation
 
@@ -179,13 +180,49 @@ internal func ejectDiskAsync(
   }
 }
 
+// MARK: - NSWorkspace Unmount
+
+/// Unmounts a volume using NSWorkspace (same mechanism as Finder)
+/// This works for user-mounted external drives without requiring admin privileges
+///
+/// - Parameters:
+///   - url: The URL of the volume to unmount
+///   - eject: Whether to also eject the device
+/// - Returns: Result of the unmount operation
+internal func unmountWithWorkspace(at url: URL, eject: Bool) -> DiskOperationResult {
+  let startTime = Date()
+
+  // NSWorkspace.unmountAndEjectDevice uses the same mechanism as Finder
+  // It handles authorization automatically for user-mounted drives
+  // Note: unmountAndEjectDevice both unmounts AND ejects for removable media
+  let success = NSWorkspace.shared.unmountAndEjectDevice(at: url)
+
+  let duration = Date().timeIntervalSince(startTime)
+
+  if success {
+    if debugCallbacks {
+      print("[SwiftDiskArbitration] NSWorkspace unmount success for \(url.path)")
+    }
+    return DiskOperationResult(success: true, error: nil, duration: duration)
+  } else {
+    if debugCallbacks {
+      print("[SwiftDiskArbitration] NSWorkspace unmount failed for \(url.path)")
+    }
+    // NSWorkspace doesn't provide detailed error info, so we return a generic error
+    return DiskOperationResult(
+      success: false,
+      error: .generalError(message: "Failed to unmount \(url.lastPathComponent)"),
+      duration: duration
+    )
+  }
+}
+
 // MARK: - Combined Operations
 
 /// Unmounts and optionally ejects a volume
 ///
-/// For physical devices, this:
-/// 1. Unmounts the volume (or all volumes if whole-disk unmount)
-/// 2. Optionally ejects the whole disk
+/// Uses NSWorkspace (Finder's mechanism) for unprivileged unmount, which works
+/// for user-mounted external drives. Falls back to DADiskUnmount for force unmount.
 ///
 /// - Parameters:
 ///   - volume: The volume to unmount/eject
@@ -199,6 +236,16 @@ internal func unmountAndEjectAsync(
 ) async -> DiskOperationResult {
   let startTime = Date()
 
+  // For non-force unmounts, use NSWorkspace which works like Finder
+  // This doesn't require elevated privileges for user-mounted drives
+  if !force {
+    let result = unmountWithWorkspace(at: volume.url, eject: ejectAfterUnmount)
+    return result
+  }
+
+  // For force unmount, we need to use DADiskUnmount with the force flag
+  // This may still require privileges but it's the only way to force
+
   // Build unmount options
   var unmountOptions = kDADiskUnmountOptionDefault
   if force {
@@ -210,7 +257,7 @@ internal func unmountAndEjectAsync(
     unmountOptions |= kDADiskUnmountOptionWhole
   }
 
-  // Step 1: Unmount
+  // Step 1: Unmount with DADiskUnmount (for force option)
   let unmountResult = await unmountDiskAsync(
     volume.disk,
     options: DADiskUnmountOptions(unmountOptions)
