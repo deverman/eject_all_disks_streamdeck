@@ -123,14 +123,12 @@ public actor DiskSession {
   /// Each volume includes a cached DADisk reference for fast ejection.
   ///
   /// - Returns: Array of ejectable volumes
-  public nonisolated func enumerateEjectableVolumes() -> [Volume] {
-    // Volume enumeration is read-only and thread-safe
-    // We can call it without actor isolation
+  public func enumerateEjectableVolumes() -> [Volume] {
     return Volume.enumerateEjectableVolumes(session: daSession)
   }
 
   /// Returns the count of ejectable volumes (faster than full enumeration)
-  public nonisolated func ejectableVolumeCount() -> Int {
+  public func ejectableVolumeCount() -> Int {
     return enumerateEjectableVolumes().count
   }
 

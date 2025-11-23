@@ -61,9 +61,9 @@ struct BenchmarkOutput: Codable, Sendable {
 // MARK: - Volume Discovery (Legacy for JSON compatibility)
 
 /// Get list of ejectable volumes using legacy format for JSON output
-func getEjectableVolumesLegacy() -> [VolumeInfoOutput] {
+func getEjectableVolumesLegacy() async -> [VolumeInfoOutput] {
     let session = DiskSession.shared
-    let volumes = session.enumerateEjectableVolumes()
+    let volumes = await session.enumerateEjectableVolumes()
 
     return volumes.map { volume in
         VolumeInfoOutput(
@@ -144,7 +144,7 @@ nonisolated func getBlockingProcesses(path: String) -> [ProcessInfoOutput] {
 /// Eject all volumes using native DiskArbitration API (10x faster than diskutil)
 func ejectAllVolumesNative(force: Bool = false, verbose: Bool = false) async -> EjectOutput {
     let session = DiskSession.shared
-    let volumes = session.enumerateEjectableVolumes()
+    let volumes = await session.enumerateEjectableVolumes()
     let startTime = Date()
 
     guard !volumes.isEmpty else {
@@ -229,7 +229,7 @@ nonisolated func ejectVolumeWithDiskutilSync(path: String, verbose: Bool = false
 
 /// Eject all volumes using diskutil subprocess (slow, for comparison)
 func ejectAllVolumesWithDiskutil(verbose: Bool = false) async -> EjectOutput {
-    let volumes = getEjectableVolumesLegacy()
+    let volumes = await getEjectableVolumesLegacy()
     let startTime = Date()
 
     guard !volumes.isEmpty else {
@@ -311,7 +311,7 @@ struct EjectDisks: AsyncParsableCommand {
 }
 
 extension EjectDisks {
-    struct List: ParsableCommand {
+    struct List: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "List all ejectable volumes",
             discussion: "Returns a JSON object with count and volume details."
@@ -320,21 +320,21 @@ extension EjectDisks {
         @Flag(name: .shortAndLong, help: "Output in compact JSON format")
         var compact = false
 
-        func run() {
-            let volumes = getEjectableVolumesLegacy()
+        func run() async {
+            let volumes = await getEjectableVolumesLegacy()
             let output = ListOutput(count: volumes.count, volumes: volumes)
             printJSON(output, compact: compact)
         }
     }
 
-    struct Count: ParsableCommand {
+    struct Count: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Print the count of ejectable volumes",
             discussion: "Returns just the number of ejectable volumes."
         )
 
-        func run() {
-            let count = DiskSession.shared.ejectableVolumeCount()
+        func run() async {
+            let count = await DiskSession.shared.ejectableVolumeCount()
             print(count)
         }
     }
@@ -385,7 +385,7 @@ extension EjectDisks {
         var compact = false
 
         func run() async {
-            let volumes = getEjectableVolumesLegacy()
+            let volumes = await getEjectableVolumesLegacy()
 
             struct DiagnoseResult: Codable {
                 let volume: String
@@ -440,7 +440,7 @@ extension EjectDisks {
             let enumStart = Date()
             var volumeCount = 0
             for _ in 0..<iterations {
-                volumeCount = DiskSession.shared.ejectableVolumeCount()
+                volumeCount = await DiskSession.shared.ejectableVolumeCount()
             }
             let enumDuration = Date().timeIntervalSince(enumStart)
             let avgEnumTime = enumDuration / Double(iterations)
@@ -449,7 +449,7 @@ extension EjectDisks {
             print("  Average time: \(String(format: "%.4f", avgEnumTime * 1000))ms")
             print("  Volumes found: \(volumeCount)")
 
-            let volumes = getEjectableVolumesLegacy()
+            let volumes = await getEjectableVolumesLegacy()
             if !volumes.isEmpty {
                 print("\nVolumes:")
                 for volume in volumes {

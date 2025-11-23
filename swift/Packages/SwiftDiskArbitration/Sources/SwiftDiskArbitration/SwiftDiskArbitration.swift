@@ -38,14 +38,14 @@
 
 /// Enumerates all ejectable volumes using the shared session.
 /// - Returns: Array of volumes that can be ejected
-public func enumerateEjectableVolumes() -> [Volume] {
-  return DiskSession.shared.enumerateEjectableVolumes()
+public func enumerateEjectableVolumes() async -> [Volume] {
+  return await DiskSession.shared.enumerateEjectableVolumes()
 }
 
 /// Returns the count of ejectable volumes.
 /// - Returns: Number of external/ejectable volumes currently mounted
-public func ejectableVolumeCount() -> Int {
-  return DiskSession.shared.ejectableVolumeCount()
+public func ejectableVolumeCount() async -> Int {
+  return await DiskSession.shared.ejectableVolumeCount()
 }
 
 /// Ejects all external volumes using the shared session.

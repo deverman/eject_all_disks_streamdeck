@@ -170,7 +170,7 @@ internal func unmountAndEjectAsync(
   }
 
   // If we have a whole disk and want to eject, unmount all partitions
-  if ejectAfterUnmount, let wholeDisk = volume.wholeDisk {
+  if ejectAfterUnmount, volume.wholeDisk != nil {
     unmountOptions |= kDADiskUnmountOptionWhole
   }
 
