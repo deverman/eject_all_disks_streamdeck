@@ -511,9 +511,10 @@ export class EjectAllDisks extends SingletonAction {
 			let ejectError: string | null = null;
 
 			if (binaryPath) {
-				// Use Swift binary (fastest - uses DiskArbitration framework)
+				// Use Swift binary with --force to handle busy volumes
+				// The --force flag falls back to diskutil unmount force for busy volumes
 				try {
-					const { stdout } = await execPromise(`"${binaryPath}" eject`, {
+					const { stdout } = await execPromise(`"${binaryPath}" eject --force`, {
 						shell: "/bin/bash",
 						timeout: 30000, // 30 second timeout for ejection
 					});
