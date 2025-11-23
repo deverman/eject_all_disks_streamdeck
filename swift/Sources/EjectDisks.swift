@@ -460,7 +460,7 @@ extension EjectDisks {
             // Benchmark ejection if requested and volumes present
             var nativeTime: Double? = nil
             var diskutilTime: Double? = nil
-            var speedup: Double? = nil
+            let speedup: Double? = nil
 
             if eject && !volumes.isEmpty {
                 print("\n--- Ejection Benchmark ---")
@@ -474,10 +474,19 @@ extension EjectDisks {
                     print("  Success: \(output.successCount)/\(output.totalCount)")
                 } else {
                     print("Ejecting with native DADiskUnmount (fast)...")
-                    let output = await ejectAllVolumesNative(force: false, verbose: false)
+                    let output = await ejectAllVolumesNative(force: false, verbose: true)
                     nativeTime = output.totalDuration
                     print("  Native time: \(String(format: "%.4f", nativeTime!))s")
                     print("  Success: \(output.successCount)/\(output.totalCount)")
+
+                    // Show errors for failed volumes
+                    let failed = output.results.filter { !$0.success }
+                    if !failed.isEmpty {
+                        print("\n  Errors:")
+                        for result in failed {
+                            print("    - \(result.volume): \(result.error ?? "Unknown error")")
+                        }
+                    }
                 }
 
                 print("\nNote: To compare both methods, run benchmark twice with fresh mounts:")

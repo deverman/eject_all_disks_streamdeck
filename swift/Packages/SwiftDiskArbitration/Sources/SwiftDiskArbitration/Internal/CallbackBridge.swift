@@ -63,17 +63,37 @@ internal final class EjectCallbackContext {
 
 // MARK: - C Callback Functions
 
+/// Enable debug output for troubleshooting
+/// Set to true to see detailed callback information
+internal var debugCallbacks = true  // Enabled for diagnosing ejection issues
+
 /// C callback for DADiskUnmount
 /// This function has @convention(c) semantics and cannot capture Swift context directly
 internal let unmountCallback: DADiskUnmountCallback = { disk, dissenter, context in
   guard let context = context else {
     // This should never happen if we set up the call correctly
+    if debugCallbacks {
+      print("[SwiftDiskArbitration] ERROR: unmountCallback received nil context!")
+    }
     return
   }
 
   // Retrieve and release the context object (balances passRetained)
   let ctx = Unmanaged<UnmountCallbackContext>.fromOpaque(context).takeRetainedValue()
   let duration = Date().timeIntervalSince(ctx.startTime)
+
+  // Debug: print what we received
+  if debugCallbacks {
+    if let dissenter = dissenter {
+      let status = DADissenterGetStatus(dissenter)
+      let statusStr = DADissenterGetStatusString(dissenter) as String? ?? "nil"
+      print(
+        "[SwiftDiskArbitration] unmountCallback: dissenter status=0x\(String(status, radix: 16)), message=\(statusStr)"
+      )
+    } else {
+      print("[SwiftDiskArbitration] unmountCallback: success (no dissenter)")
+    }
+  }
 
   let result: DiskOperationResult
   if let error = DiskError.from(dissenter: dissenter) {
@@ -89,11 +109,27 @@ internal let unmountCallback: DADiskUnmountCallback = { disk, dissenter, context
 /// C callback for DADiskEject
 internal let ejectCallback: DADiskEjectCallback = { disk, dissenter, context in
   guard let context = context else {
+    if debugCallbacks {
+      print("[SwiftDiskArbitration] ERROR: ejectCallback received nil context!")
+    }
     return
   }
 
   let ctx = Unmanaged<EjectCallbackContext>.fromOpaque(context).takeRetainedValue()
   let duration = Date().timeIntervalSince(ctx.startTime)
+
+  // Debug: print what we received
+  if debugCallbacks {
+    if let dissenter = dissenter {
+      let status = DADissenterGetStatus(dissenter)
+      let statusStr = DADissenterGetStatusString(dissenter) as String? ?? "nil"
+      print(
+        "[SwiftDiskArbitration] ejectCallback: dissenter status=0x\(String(status, radix: 16)), message=\(statusStr)"
+      )
+    } else {
+      print("[SwiftDiskArbitration] ejectCallback: success (no dissenter)")
+    }
+  }
 
   let result: DiskOperationResult
   if let error = DiskError.from(dissenter: dissenter) {
