@@ -150,98 +150,31 @@ func getEjectableVolumes() -> [VolumeInfo] {
 
 // MARK: - Disk Ejection (Swift 6 Concurrency)
 
-/// Eject a single volume using DiskArbitration framework (fastest native API)
-/// This is the same API that diskutil uses internally
-nonisolated func ejectVolumeWithDiskArbitration(path: String) -> (success: Bool, error: String?) {
-    let url = URL(fileURLWithPath: path)
+/// Eject a single volume using diskutil eject (reliable and fast when run in parallel)
+/// Note: NSWorkspace.unmountAndEjectDevice incorrectly returns error -47 for non-busy volumes
+nonisolated func ejectVolumeWithDiskutilSync(path: String) -> (success: Bool, error: String?) {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
+    process.arguments = ["eject", path]
 
-    guard let session = DASessionCreate(kCFAllocatorDefault) else {
-        return (false, "Failed to create DiskArbitration session")
-    }
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = pipe
 
-    guard let disk = DADiskCreateFromVolumePath(kCFAllocatorDefault, session, url as CFURL) else {
-        return (false, "Failed to get disk reference for volume")
-    }
+    do {
+        try process.run()
+        process.waitUntilExit()
 
-    // Create a semaphore to wait for the async callback
-    let semaphore = DispatchSemaphore(value: 0)
-    var unmountError: String? = nil
-    var unmountSuccess = false
-
-    // Set up a run loop source for the session
-    let runLoopSource = DASessionGetRunLoopSource(session, CFRunLoopMode.defaultMode.rawValue)
-    if let source = runLoopSource {
-        CFRunLoopAddSource(CFRunLoopGetCurrent(), source, CFRunLoopMode.defaultMode)
-    }
-
-    // First unmount the disk
-    DADiskUnmount(disk, DADiskUnmountOptions(kDADiskUnmountOptionDefault)) { disk, dissenter, context in
-        if let dissenter = dissenter {
-            let status = DADissenterGetStatus(dissenter)
-            if let statusString = DADissenterGetStatusString(dissenter) {
-                unmountError = String(statusString)
-            } else {
-                unmountError = "Unmount failed with status: \(status)"
-            }
-            unmountSuccess = false
+        if process.terminationStatus == 0 {
+            return (true, nil)
         } else {
-            unmountSuccess = true
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8) ?? "Unknown error"
+            return (false, output.trimmingCharacters(in: .whitespacesAndNewlines))
         }
-        semaphore.signal()
+    } catch {
+        return (false, error.localizedDescription)
     }
-
-    // Wait for unmount with timeout
-    let unmountResult = semaphore.wait(timeout: .now() + 10)
-
-    if unmountResult == .timedOut {
-        if let source = runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, CFRunLoopMode.defaultMode)
-        }
-        return (false, "Unmount timed out")
-    }
-
-    if !unmountSuccess {
-        if let source = runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, CFRunLoopMode.defaultMode)
-        }
-        return (false, unmountError ?? "Unmount failed")
-    }
-
-    // Now eject the disk
-    var ejectError: String? = nil
-    var ejectSuccess = false
-
-    DADiskEject(disk, DADiskEjectOptions(kDADiskEjectOptionDefault)) { disk, dissenter, context in
-        if let dissenter = dissenter {
-            let status = DADissenterGetStatus(dissenter)
-            if let statusString = DADissenterGetStatusString(dissenter) {
-                ejectError = String(statusString)
-            } else {
-                ejectError = "Eject failed with status: \(status)"
-            }
-            ejectSuccess = false
-        } else {
-            ejectSuccess = true
-        }
-        semaphore.signal()
-    }
-
-    // Wait for eject with timeout
-    let ejectResult = semaphore.wait(timeout: .now() + 10)
-
-    if let source = runLoopSource {
-        CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, CFRunLoopMode.defaultMode)
-    }
-
-    if ejectResult == .timedOut {
-        return (false, "Eject timed out")
-    }
-
-    if !ejectSuccess {
-        return (false, ejectError ?? "Eject failed")
-    }
-
-    return (true, nil)
 }
 
 /// Eject a single volume using NSWorkspace (backup method)
@@ -266,32 +199,6 @@ nonisolated func ejectWithDiskutilForce(path: String) -> (success: Bool, error: 
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
     process.arguments = ["unmount", "force", path]
-
-    let pipe = Pipe()
-    process.standardOutput = pipe
-    process.standardError = pipe
-
-    do {
-        try process.run()
-        process.waitUntilExit()
-
-        if process.terminationStatus == 0 {
-            return (true, nil)
-        } else {
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let output = String(data: data, encoding: .utf8) ?? "Unknown error"
-            return (false, output.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-    } catch {
-        return (false, error.localizedDescription)
-    }
-}
-
-/// Eject a single volume using diskutil eject (fallback, spawns process)
-nonisolated func ejectVolumeWithDiskutilSync(path: String) -> (success: Bool, error: String?) {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
-    process.arguments = ["eject", path]
 
     let pipe = Pipe()
     process.standardOutput = pipe
@@ -357,14 +264,14 @@ func ejectAllVolumes(volumes: [VolumeInfo], force: Bool = false) async -> EjectO
     }
 
     // Use TaskGroup for parallel ejection with true concurrency
-    // Using DiskArbitration framework for fastest native ejection
-    // This is the same API that diskutil uses internally
+    // Using diskutil eject which is reliable (NSWorkspace incorrectly returns error -47)
+    // Running in parallel minimizes the overhead of spawning processes
     let results = await withTaskGroup(of: EjectResult.self, returning: [EjectResult].self) { group in
         for volume in volumes {
             group.addTask {
                 let volumeStartTime = Date()
-                // Use DiskArbitration for fast native ejection
-                let (success, error) = ejectVolumeWithDiskArbitration(path: volume.path)
+                // Use diskutil eject for reliable ejection
+                let (success, error) = ejectVolumeWithDiskutilSync(path: volume.path)
                 let duration = Date().timeIntervalSince(volumeStartTime)
 
                 return EjectResult(
