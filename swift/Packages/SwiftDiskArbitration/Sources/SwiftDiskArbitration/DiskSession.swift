@@ -150,52 +150,46 @@ public actor DiskSession {
     var status = AuthorizationCreate(nil, nil, [], &authRefLocal)
 
     guard status == errAuthorizationSuccess, let ref = authRefLocal else {
+      print("[SwiftDiskArbitration] AuthorizationCreate failed with status: \(status)")
       throw DiskError.authorizationFailed(status: status)
     }
 
     // Request the specific right for unmounting removable volumes
     // This is what Finder and diskutil do behind the scenes
-    // Use kAuthorizationRightExecute pattern with custom right name
-    let rightName: StaticString = "system.volume.removable.unmount"
+    let rightName = "system.volume.removable.unmount" as NSString
+    let rightNamePtr = UnsafePointer<CChar>(rightName.utf8String!)
 
-    status = rightName.withUTF8Buffer { buffer in
-      // Create null-terminated string
-      var cString = [CChar](repeating: 0, count: buffer.count + 1)
-      for (i, byte) in buffer.enumerated() {
-        cString[i] = CChar(bitPattern: byte)
-      }
+    var rightItem = AuthorizationItem(
+      name: rightNamePtr,
+      valueLength: 0,
+      value: nil,
+      flags: 0
+    )
 
-      return cString.withUnsafeBufferPointer { cStringPtr in
-        var rightItem = AuthorizationItem(
-          name: cStringPtr.baseAddress!,
-          valueLength: 0,
-          value: nil,
-          flags: 0
-        )
+    var rights = AuthorizationRights(count: 1, items: &rightItem)
 
-        return withUnsafeMutablePointer(to: &rightItem) { rightItemPtr in
-          var rights = AuthorizationRights(count: 1, items: rightItemPtr)
+    // Flags to allow user interaction and extend rights
+    let flags: AuthorizationFlags = [
+      .interactionAllowed,  // Show password dialog if needed
+      .extendRights,  // Extend authorization to new rights
+      .preAuthorize  // Authorize before actually needing it
+    ]
 
-          // Flags to allow user interaction and extend rights
-          let flags: AuthorizationFlags = [
-            .interactionAllowed,  // Show password dialog if needed
-            .extendRights,  // Extend authorization to new rights
-            .preAuthorize  // Authorize before actually needing it
-          ]
-
-          return AuthorizationCopyRights(ref, &rights, nil, flags, nil)
-        }
-      }
-    }
+    print("[SwiftDiskArbitration] Requesting authorization for '\(rightName)'...")
+    status = AuthorizationCopyRights(ref, &rights, nil, flags, nil)
+    print("[SwiftDiskArbitration] AuthorizationCopyRights returned status: \(status)")
 
     if status == errAuthorizationSuccess {
       self.authRef = ref
       self.isAuthorized = true
+      print("[SwiftDiskArbitration] Authorization granted!")
     } else if status == errAuthorizationCanceled {
       AuthorizationFree(ref, [])
+      print("[SwiftDiskArbitration] User cancelled authorization")
       throw DiskError.authorizationCancelled
     } else {
       AuthorizationFree(ref, [])
+      print("[SwiftDiskArbitration] Authorization failed with status: \(status)")
       throw DiskError.authorizationFailed(status: status)
     }
   }
