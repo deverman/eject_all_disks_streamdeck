@@ -1,8 +1,9 @@
 # Node.js
 node_modules/
 
-# Stream Deck files
-*.sdPlugin/bin
+# Stream Deck files - ignore built files but keep setup script
+*.sdPlugin/bin/*
+!*.sdPlugin/bin/install-eject-privileges.sh
 *.sdPlugin/logs
 
 .DS_Store
