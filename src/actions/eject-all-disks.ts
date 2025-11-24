@@ -150,13 +150,6 @@ export class EjectAllDisks extends SingletonAction {
 		return null;
 	}
 
-	/**
-	 * Check if Swift binary is available
-	 */
-	private hasSwiftBinary(): boolean {
-		return this.getSwiftBinaryPath() !== null;
-	}
-
 	// Cleanup timeouts
 	private clearTimeouts(): void {
 		this.timeouts.forEach((timeout) => clearTimeout(timeout));
@@ -171,13 +164,6 @@ export class EjectAllDisks extends SingletonAction {
 			this.monitoringIntervals.delete(actionId);
 			this.diskCounts.delete(actionId);
 		}
-	}
-
-	// Cleanup all monitoring intervals
-	private stopAllMonitoring(): void {
-		this.monitoringIntervals.forEach((interval) => clearInterval(interval));
-		this.monitoringIntervals.clear();
-		this.diskCounts.clear();
 	}
 
 	override onWillDisappear(ev: WillDisappearEvent): void {
@@ -444,22 +430,6 @@ export class EjectAllDisks extends SingletonAction {
 		return (ev.action as any).setTitle(showTitle ? "Eject All\nDisks" : "", {
 			target: Target.HardwareAndSoftware,
 		});
-	}
-
-	/**
-	 * Refreshes settings from storage and applies them
-	 */
-	private async refreshSettings(action: Action): Promise<void> {
-		try {
-			// Force get the latest settings from Stream Deck
-			const latestSettings = (await action.getSettings()) as EjectSettings;
-			streamDeck.logger.info(`Refreshed settings: ${JSON.stringify(latestSettings)}`);
-
-			// Apply settings immediately
-			return this.updateTitleFromSettings(action, latestSettings);
-		} catch (err) {
-			streamDeck.logger.error(`Error refreshing settings: ${err}`);
-		}
 	}
 
 	/**
