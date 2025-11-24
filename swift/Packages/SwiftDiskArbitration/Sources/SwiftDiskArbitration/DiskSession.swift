@@ -8,7 +8,6 @@
 
 import DiskArbitration
 import Foundation
-import Security
 
 /// Result of ejecting multiple volumes
 public struct BatchEjectResult: Sendable {
@@ -95,13 +94,6 @@ public actor DiskSession {
   /// Whether this session is still valid
   private var isValid: Bool = true
 
-  /// Authorization reference for unmount operations
-  /// This is required for unprivileged apps to unmount volumes
-  private nonisolated(unsafe) var authRef: AuthorizationRef?
-
-  /// Whether authorization has been granted
-  public private(set) var isAuthorized: Bool = false
-
   /// Creates a new DiskSession
   /// - Throws: DiskError.sessionCreationFailed if session cannot be created
   public init() throws {
@@ -124,86 +116,14 @@ public actor DiskSession {
     // Unschedule the session from the dispatch queue
     // This prevents callbacks from firing after deallocation
     DASessionSetDispatchQueue(daSession, nil)
-
-    // Free the authorization reference if we have one
-    if let ref = authRef {
-      AuthorizationFree(ref, [])
-    }
   }
 
-  // MARK: - Authorization
-
-  /// Requests authorization to unmount removable volumes.
-  ///
-  /// This requests the `system.volume.removable.unmount` right from the system.
-  /// A password dialog will be shown to the user if they are an admin.
-  /// Once authorized, the authorization persists for the lifetime of this session.
-  ///
-  /// Call this once before attempting to eject volumes. For Stream Deck plugins,
-  /// call this when the plugin initializes.
-  ///
-  /// - Throws: DiskError.authorizationFailed if authorization fails
-  /// - Throws: DiskError.authorizationCancelled if user cancels the dialog
-  public func requestAuthorization() throws {
-    // Create authorization reference with default flags
-    var authRefLocal: AuthorizationRef?
-    var status = AuthorizationCreate(nil, nil, AuthorizationFlags(), &authRefLocal)
-
-    guard status == errAuthorizationSuccess, let ref = authRefLocal else {
-      print("[SwiftDiskArbitration] AuthorizationCreate failed with status: \(status)")
-      throw DiskError.authorizationFailed(status: status)
-    }
-
-    // Request the specific right for unmounting removable volumes
-    // This is what Finder and diskutil do behind the scenes
-    let rightName = ("system.volume.removable.unmount" as NSString).utf8String!
-
-    var rightItem = AuthorizationItem(
-      name: rightName,
-      valueLength: 0,
-      value: nil,
-      flags: 0
-    )
-
-    // Use withUnsafeMutablePointer to ensure the pointer remains valid
-    status = withUnsafeMutablePointer(to: &rightItem) { rightItemPtr in
-      var rights = AuthorizationRights(count: 1, items: rightItemPtr)
-
-      // Flags to allow user interaction and extend rights
-      let flags: AuthorizationFlags = [
-        .interactionAllowed,  // Show password dialog if needed
-        .extendRights  // Extend authorization to new rights
-      ]
-
-      print("[SwiftDiskArbitration] Requesting authorization for 'system.volume.removable.unmount'...")
-      return AuthorizationCopyRights(ref, &rights, nil, flags, nil)
-    }
-
-    print("[SwiftDiskArbitration] AuthorizationCopyRights returned status: \(status)")
-
-    if status == errAuthorizationSuccess {
-      self.authRef = ref
-      self.isAuthorized = true
-      print("[SwiftDiskArbitration] Authorization granted!")
-    } else if status == errAuthorizationCanceled {
-      AuthorizationFree(ref, AuthorizationFlags())
-      print("[SwiftDiskArbitration] User cancelled authorization")
-      throw DiskError.authorizationCancelled
-    } else {
-      AuthorizationFree(ref, AuthorizationFlags())
-      print("[SwiftDiskArbitration] Authorization failed with status: \(status)")
-      throw DiskError.authorizationFailed(status: status)
-    }
-  }
+  // MARK: - Privileges
 
   /// Checks if we're running with root privileges (sudo)
+  /// When true, disk operations will have full access to unmount/eject volumes.
   public nonisolated var isRunningAsRoot: Bool {
     return geteuid() == 0
-  }
-
-  /// Checks if authorization is needed (not root and not already authorized)
-  public var needsAuthorization: Bool {
-    return !isRunningAsRoot && !isAuthorized
   }
 
   // MARK: - Volume Enumeration

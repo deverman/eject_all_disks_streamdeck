@@ -74,6 +74,51 @@ export class EjectAllDisks extends SingletonAction {
 	// Cached path to the Swift binary
 	private swiftBinaryPath: string | null = null;
 
+	// Cache whether sudo is configured for passwordless execution
+	private sudoConfigured: boolean | null = null;
+
+	/**
+	 * Checks if sudo is configured for passwordless execution of the eject binary.
+	 * This tests if the sudoers file is properly set up.
+	 * @returns Promise that resolves to true if sudo -n works, false otherwise
+	 */
+	private async checkSudoConfiguration(): Promise<boolean> {
+		// Return cached value if available
+		if (this.sudoConfigured !== null) {
+			return this.sudoConfigured;
+		}
+
+		const binaryPath = this.getSwiftBinaryPath();
+		if (!binaryPath) {
+			this.sudoConfigured = false;
+			return false;
+		}
+
+		const execPromise = promisify(exec);
+
+		try {
+			// Test if sudo -n works with the binary (using --version which doesn't do anything dangerous)
+			await execPromise(`sudo -n "${binaryPath}" --version`, {
+				shell: "/bin/bash",
+				timeout: 5000,
+			});
+			this.sudoConfigured = true;
+			streamDeck.logger.info("Sudo configured for passwordless execution");
+			return true;
+		} catch (error) {
+			this.sudoConfigured = false;
+			streamDeck.logger.info("Sudo not configured for passwordless execution - will attempt without sudo");
+			return false;
+		}
+	}
+
+	/**
+	 * Resets the sudo configuration cache (useful after user runs setup script)
+	 */
+	private resetSudoConfigCache(): void {
+		this.sudoConfigured = null;
+	}
+
 	/**
 	 * Gets the path to the Swift eject-disks binary
 	 * @returns Path to the binary or null if not found
@@ -297,10 +342,52 @@ export class EjectAllDisks extends SingletonAction {
 	}
 
 	/**
+	 * Gets the path to the setup script
+	 * @returns Path to the install-eject-privileges.sh script or null if not found
+	 */
+	private getSetupScriptPath(): string | null {
+		const possiblePaths = [
+			path.join(__dirname, "install-eject-privileges.sh"),
+			path.join(__dirname, "..", "bin", "install-eject-privileges.sh"),
+			path.join(process.cwd(), "bin", "install-eject-privileges.sh"),
+		];
+
+		for (const scriptPath of possiblePaths) {
+			if (fs.existsSync(scriptPath)) {
+				return scriptPath;
+			}
+		}
+		return null;
+	}
+
+	/**
 	 * Handle messages from the property inspector
 	 */
-	override onSendToPlugin(ev: SendToPluginEvent<JsonValue, JsonObject>): void | Promise<void> {
+	override async onSendToPlugin(ev: SendToPluginEvent<JsonValue, JsonObject>): Promise<void> {
 		const payload = ev.payload as Record<string, unknown>;
+
+		// Check if we received a setup status check request
+		if (payload && typeof payload === "object" && "checkSetupStatus" in payload) {
+			// Reset the cache to get fresh status
+			this.resetSudoConfigCache();
+
+			const configured = await this.checkSudoConfiguration();
+			const setupScriptPath = this.getSetupScriptPath();
+
+			// Build the command to show in the UI
+			const setupCommand = setupScriptPath ? `bash "${setupScriptPath}"` : "Setup script not found";
+
+			// Send the status back to the property inspector
+			await (ev.action as any).sendToPropertyInspector({
+				setupStatus: {
+					configured,
+					setupCommand,
+				},
+			});
+
+			streamDeck.logger.info(`Setup status check: configured=${configured}, command=${setupCommand}`);
+			return;
+		}
 
 		// Check if we received a showTitle setting change
 		if (payload && typeof payload === "object" && "showTitle" in payload) {
@@ -317,8 +404,6 @@ export class EjectAllDisks extends SingletonAction {
 
 			// Save the settings without waiting
 			ev.action.setSettings(settings);
-
-			return Promise.resolve();
 		}
 	}
 
@@ -520,10 +605,18 @@ export class EjectAllDisks extends SingletonAction {
 			let ejectError: string | null = null;
 
 			if (binaryPath) {
+				// Check if sudo is configured for passwordless execution
+				const useSudo = await this.checkSudoConfiguration();
+				const ejectCommand = useSudo
+					? `sudo -n "${binaryPath}" eject --verbose`
+					: `"${binaryPath}" eject --verbose`;
+
+				streamDeck.logger.info(`Using eject command: ${useSudo ? "with sudo" : "without sudo"}`);
+
 				// Use Swift binary (fastest - uses DiskArbitration framework)
 				// Use verbose mode to get blocking process info on failures
 				try {
-					const { stdout } = await execPromise(`"${binaryPath}" eject --verbose`, {
+					const { stdout } = await execPromise(ejectCommand, {
 						shell: "/bin/bash",
 						timeout: 30000, // 30 second timeout for ejection
 					});
