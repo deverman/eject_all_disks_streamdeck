@@ -145,9 +145,9 @@ public actor DiskSession {
   /// - Throws: DiskError.authorizationFailed if authorization fails
   /// - Throws: DiskError.authorizationCancelled if user cancels the dialog
   public func requestAuthorization() throws {
-    // Create authorization reference
+    // Create authorization reference with default flags
     var authRefLocal: AuthorizationRef?
-    var status = AuthorizationCreate(nil, nil, [], &authRefLocal)
+    var status = AuthorizationCreate(nil, nil, AuthorizationFlags(), &authRefLocal)
 
     guard status == errAuthorizationSuccess, let ref = authRefLocal else {
       print("[SwiftDiskArbitration] AuthorizationCreate failed with status: \(status)")
@@ -156,27 +156,29 @@ public actor DiskSession {
 
     // Request the specific right for unmounting removable volumes
     // This is what Finder and diskutil do behind the scenes
-    let rightName = "system.volume.removable.unmount" as NSString
-    let rightNamePtr = UnsafePointer<CChar>(rightName.utf8String!)
+    let rightName = ("system.volume.removable.unmount" as NSString).utf8String!
 
     var rightItem = AuthorizationItem(
-      name: rightNamePtr,
+      name: rightName,
       valueLength: 0,
       value: nil,
       flags: 0
     )
 
-    var rights = AuthorizationRights(count: 1, items: &rightItem)
+    // Use withUnsafeMutablePointer to ensure the pointer remains valid
+    status = withUnsafeMutablePointer(to: &rightItem) { rightItemPtr in
+      var rights = AuthorizationRights(count: 1, items: rightItemPtr)
 
-    // Flags to allow user interaction and extend rights
-    let flags: AuthorizationFlags = [
-      .interactionAllowed,  // Show password dialog if needed
-      .extendRights,  // Extend authorization to new rights
-      .preAuthorize  // Authorize before actually needing it
-    ]
+      // Flags to allow user interaction and extend rights
+      let flags: AuthorizationFlags = [
+        .interactionAllowed,  // Show password dialog if needed
+        .extendRights  // Extend authorization to new rights
+      ]
 
-    print("[SwiftDiskArbitration] Requesting authorization for '\(rightName)'...")
-    status = AuthorizationCopyRights(ref, &rights, nil, flags, nil)
+      print("[SwiftDiskArbitration] Requesting authorization for 'system.volume.removable.unmount'...")
+      return AuthorizationCopyRights(ref, &rights, nil, flags, nil)
+    }
+
     print("[SwiftDiskArbitration] AuthorizationCopyRights returned status: \(status)")
 
     if status == errAuthorizationSuccess {
@@ -184,11 +186,11 @@ public actor DiskSession {
       self.isAuthorized = true
       print("[SwiftDiskArbitration] Authorization granted!")
     } else if status == errAuthorizationCanceled {
-      AuthorizationFree(ref, [])
+      AuthorizationFree(ref, AuthorizationFlags())
       print("[SwiftDiskArbitration] User cancelled authorization")
       throw DiskError.authorizationCancelled
     } else {
-      AuthorizationFree(ref, [])
+      AuthorizationFree(ref, AuthorizationFlags())
       print("[SwiftDiskArbitration] Authorization failed with status: \(status)")
       throw DiskError.authorizationFailed(status: status)
     }
