@@ -366,8 +366,12 @@ export class EjectAllDisks extends SingletonAction {
 	override async onSendToPlugin(ev: SendToPluginEvent<JsonValue, JsonObject>): Promise<void> {
 		const payload = ev.payload as Record<string, unknown>;
 
+		streamDeck.logger.info(`onSendToPlugin received: ${JSON.stringify(payload)}`);
+
 		// Check if we received a setup status check request
 		if (payload && typeof payload === "object" && "checkSetupStatus" in payload) {
+			streamDeck.logger.info("Processing checkSetupStatus request...");
+
 			// Reset the cache to get fresh status
 			this.resetSudoConfigCache();
 
@@ -377,15 +381,25 @@ export class EjectAllDisks extends SingletonAction {
 			// Build the command to show in the UI
 			const setupCommand = setupScriptPath ? `bash "${setupScriptPath}"` : "Setup script not found";
 
-			// Send the status back to the property inspector
-			await (ev.action as any).sendToPropertyInspector({
-				setupStatus: {
-					configured,
-					setupCommand,
-				},
-			});
+			streamDeck.logger.info(`Setup status: configured=${configured}, setupScriptPath=${setupScriptPath}`);
 
-			streamDeck.logger.info(`Setup status check: configured=${configured}, command=${setupCommand}`);
+			// Send the status back to the property inspector
+			try {
+				const response = {
+					setupStatus: {
+						configured,
+						setupCommand,
+					},
+				};
+				streamDeck.logger.info(`Sending to property inspector: ${JSON.stringify(response)}`);
+
+				// Use streamDeck.ui to send to the property inspector
+				await streamDeck.ui.sendToPropertyInspector(response);
+
+				streamDeck.logger.info("Successfully sent to property inspector");
+			} catch (error) {
+				streamDeck.logger.error(`Failed to send to property inspector: ${error}`);
+			}
 			return;
 		}
 
