@@ -89,6 +89,24 @@ const config = {
 				this.emitFile({ fileName: "package.json", source: `{ "type": "module" }`, type: "asset" });
 			},
 		},
+		{
+			name: "copy-setup-script",
+			writeBundle() {
+				// Copy the install script to the bin folder if it exists in source
+				const srcScript = `${sdPlugin}/bin/install-eject-privileges.sh`;
+				if (fs.existsSync(srcScript)) {
+					// Ensure the script has proper permissions (readable and executable)
+					try {
+						fs.chmodSync(srcScript, 0o755);
+						console.log("Set install-eject-privileges.sh permissions to 755");
+					} catch (err) {
+						console.log("Could not set script permissions:", err.message);
+					}
+				} else {
+					console.log("Warning: install-eject-privileges.sh not found at", srcScript);
+				}
+			},
+		},
 	],
 };
 

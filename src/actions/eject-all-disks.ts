@@ -352,11 +352,17 @@ export class EjectAllDisks extends SingletonAction {
 			path.join(process.cwd(), "bin", "install-eject-privileges.sh"),
 		];
 
+		streamDeck.logger.info(`Looking for setup script, __dirname: ${__dirname}, cwd: ${process.cwd()}`);
+
 		for (const scriptPath of possiblePaths) {
-			if (fs.existsSync(scriptPath)) {
+			const exists = fs.existsSync(scriptPath);
+			streamDeck.logger.info(`Checking setup script path: ${scriptPath}, exists: ${exists}`);
+			if (exists) {
 				return scriptPath;
 			}
 		}
+
+		streamDeck.logger.warn("Setup script not found in any expected location");
 		return null;
 	}
 
