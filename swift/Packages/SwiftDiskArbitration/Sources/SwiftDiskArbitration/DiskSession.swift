@@ -118,6 +118,14 @@ public actor DiskSession {
     DASessionSetDispatchQueue(daSession, nil)
   }
 
+  // MARK: - Privileges
+
+  /// Checks if we're running with root privileges (sudo)
+  /// When true, disk operations will have full access to unmount/eject volumes.
+  public nonisolated var isRunningAsRoot: Bool {
+    return geteuid() == 0
+  }
+
   // MARK: - Volume Enumeration
 
   /// Enumerates all ejectable external volumes.

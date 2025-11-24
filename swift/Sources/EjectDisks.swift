@@ -141,7 +141,9 @@ nonisolated func getBlockingProcesses(path: String) -> [ProcessInfoOutput] {
 
 // MARK: - Fast Native Ejection (DADiskUnmount)
 
-/// Eject all volumes using native DiskArbitration API (10x faster than diskutil)
+/// Eject all volumes using native DiskArbitration API (faster than diskutil)
+/// When run with sudo, this provides passwordless ejection.
+/// Without sudo, some volumes may fail with "Not privileged" errors.
 func ejectAllVolumesNative(force: Bool = false, verbose: Bool = false) async -> EjectOutput {
     let session = DiskSession.shared
     let volumes = await session.enumerateEjectableVolumes()
