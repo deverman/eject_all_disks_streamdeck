@@ -145,12 +145,15 @@ internal let ejectCallback: DADiskEjectCallback = { disk, dissenter, context in
 
 /// Unmounts a disk asynchronously using DADiskUnmount
 ///
+/// Thread Safety: DADisk is a Core Foundation type that is thread-safe.
+/// This nonisolated function can be safely called from any isolation domain.
+///
 /// - Parameters:
-///   - disk: The DADisk to unmount (sending - safe to transfer across isolation boundaries)
+///   - disk: The DADisk to unmount (thread-safe CFType)
 ///   - options: Unmount options (default or force)
 /// - Returns: Result of the unmount operation
-internal func unmountDiskAsync(
-  _ disk: sending DADisk,
+nonisolated internal func unmountDiskAsync(
+  _ disk: DADisk,
   options: DADiskUnmountOptions = DADiskUnmountOptions(kDADiskUnmountOptionDefault)
 ) async -> DiskOperationResult {
   await withCheckedContinuation { continuation in
@@ -163,12 +166,15 @@ internal func unmountDiskAsync(
 
 /// Ejects a disk asynchronously using DADiskEject
 ///
+/// Thread Safety: DADisk is a Core Foundation type that is thread-safe.
+/// This nonisolated function can be safely called from any isolation domain.
+///
 /// - Parameters:
-///   - disk: The DADisk to eject (should be whole disk for physical ejection, sending - safe to transfer across isolation boundaries)
+///   - disk: The DADisk to eject (should be whole disk for physical ejection, thread-safe CFType)
 ///   - options: Eject options
 /// - Returns: Result of the eject operation
-internal func ejectDiskAsync(
-  _ disk: sending DADisk,
+nonisolated internal func ejectDiskAsync(
+  _ disk: DADisk,
   options: DADiskEjectOptions = DADiskEjectOptions(kDADiskEjectOptionDefault)
 ) async -> DiskOperationResult {
   await withCheckedContinuation { continuation in
@@ -187,6 +193,9 @@ internal func ejectDiskAsync(
 /// handles unmounting internally. This is more reliable than DADiskUnmount
 /// for removable media.
 ///
+/// Thread Safety: This function is nonisolated and can be safely called from
+/// any isolation domain. DADisk references are thread-safe CFTypes.
+///
 /// NOTE: This requires Full Disk Access permission in System Settings.
 /// Grant access to the binary at: System Settings → Privacy & Security → Full Disk Access
 ///
@@ -195,7 +204,7 @@ internal func ejectDiskAsync(
 ///   - ejectAfterUnmount: Whether to eject the physical device after unmounting
 ///   - force: Whether to force unmount even if files are open
 /// - Returns: Result of the operation
-internal func unmountAndEjectAsync(
+nonisolated internal func unmountAndEjectAsync(
   _ volume: Volume,
   ejectAfterUnmount: Bool,
   force: Bool
