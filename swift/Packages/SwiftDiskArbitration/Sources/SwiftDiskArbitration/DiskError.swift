@@ -64,15 +64,6 @@ public enum DiskError: Error, Sendable, CustomStringConvertible {
   /// Operation was cancelled
   case cancelled
 
-  /// Authorization failed (user denied or system error)
-  case authorizationFailed(status: Int32)
-
-  /// Not authorized to perform unmount operations
-  case notAuthorized
-
-  /// User cancelled the authorization dialog
-  case authorizationCancelled
-
   public var description: String {
     switch self {
     case .success:
@@ -111,12 +102,6 @@ public enum DiskError: Error, Sendable, CustomStringConvertible {
       return "Operation timed out"
     case .cancelled:
       return "Operation was cancelled"
-    case .authorizationFailed(let status):
-      return "Authorization failed (status: \(status))"
-    case .notAuthorized:
-      return "Not authorized to unmount volumes. Call requestAuthorization() first."
-    case .authorizationCancelled:
-      return "User cancelled the authorization dialog"
     }
   }
 

@@ -4,14 +4,14 @@ A Stream Deck plugin that adds a button to safely eject all external disks on ma
 
 ## Features
 
+- **Fast native disk ejection** - Uses macOS DiskArbitration framework for ~6x faster ejection than diskutil
 - **Real-time disk count monitoring** - Shows the number of attached external disks on the button icon
 - **Automatic updates** - Icon badge updates every 3 seconds when disks are mounted/unmounted
-- Single button to eject all external disks
+- Single button to eject all external disks in parallel
 - Visual feedback for ejection status (normal, ejecting, success, error)
 - Customizable button title visibility
-- Safe disk ejection using macOS `diskutil`
 - Animated states during ejection
-- Comprehensive error handling with visual indicators
+- Comprehensive error handling with blocking process detection
 
 ## Requirements
 
@@ -25,6 +25,19 @@ A Stream Deck plugin that adds a button to safely eject all external disks on ma
 1. Download the latest release from the [releases page](https://github.com/deverman/eject_all_disks_streamdeck/releases)
 2. Double-click the downloaded `.streamDeckPlugin` file to install it
 3. Stream Deck will prompt you to install the plugin
+
+## Initial Setup (One-Time)
+
+For the fastest and most reliable disk ejection, run the privilege setup script once:
+
+1. Open the Stream Deck action's property inspector (click on the Eject All Disks button)
+2. In the "Privilege Setup" section, check the status
+3. If not configured, copy the setup command and run it in Terminal
+4. Enter your admin password when prompted
+
+This configures your system to allow passwordless disk ejection using macOS's sudoers mechanism. Without this setup, the plugin will still work but may show "Not privileged" errors for some volumes.
+
+For detailed instructions, see [SETUP.md](org.deverman.ejectalldisks.sdPlugin/SETUP.md).
 
 ## Usage
 
@@ -55,8 +68,9 @@ In the Stream Deck button configuration:
 This plugin:
 
 - Only ejects external disks (not internal drives)
-- Uses macOS's built-in `diskutil` command with validation
+- Uses macOS's native DiskArbitration framework for safe unmount and eject
 - Validates disk paths before ejection
+- Optional sudoers setup grants privileges only for the specific eject binary
 - Cannot access any other system resources
 
 ## Development
@@ -355,8 +369,10 @@ Settings are implemented using:
 
 The plugin uses a Swift CLI binary for fast parallel disk ejection:
 
-**Primary method (Swift binary):**
-- Uses `diskutil eject` for each volume
+**Primary method (Swift binary with DiskArbitration):**
+- Uses macOS DiskArbitration framework (`DADiskUnmount` + `DADiskEject`)
+- ~6x faster than `diskutil eject` subprocess calls
+- Unmounts all volumes on a physical disk, then ejects the device
 - Runs ejections in parallel using Swift concurrency
 - Reports blocking processes when ejection fails
 - Located at `bin/eject-disks` in the plugin directory
@@ -374,24 +390,32 @@ If the Swift binary is unavailable, the plugin falls back to a shell script that
 
 # Eject all volumes with verbose output
 ./eject-disks eject --verbose
+
+# Benchmark native vs diskutil speed
+./eject-disks benchmark --eject
 ```
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **Button shows error state:**
-    - Check the plugin logs for which process is blocking ejection
-    - Common blockers: backup apps (Arq, Time Machine), file sync apps (Dropbox), automation tools (Hazel)
-    - Run `./eject-disks diagnose` to see blocking processes
-    - Try pausing backup/sync apps before ejecting
+1. **"Not privileged" error:**
+    - Run the privilege setup script (see [Initial Setup](#initial-setup-one-time))
+    - Check the property inspector to verify setup status
+    - The setup is required for the native DiskArbitration APIs to work
 
-2. **Disk won't eject but Finder can eject it:**
+2. **Button shows error state:**
+    - Check the plugin logs for which process is blocking ejection
+    - Common blockers: Spotlight (`mds`), backup apps (Time Machine), file sync apps (Dropbox)
+    - Run `./eject-disks diagnose` to see blocking processes
+    - Try pressing the button again - temporary locks often release quickly
+
+3. **Disk won't eject but Finder can eject it:**
     - Finder sends a "please close files" notification to apps before ejecting
-    - `diskutil eject` doesn't send this notification
+    - The native API doesn't send this notification
     - Pause or quit the blocking application, then try again
 
-3. **Settings not saving:**
+4. **Settings not saving:**
     - Restart Stream Deck software
     - Check permissions
 

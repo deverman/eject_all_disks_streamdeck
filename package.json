@@ -1,6 +1,6 @@
 {
     "name": "eject-all-disks-streamdeck",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "description": "Stream Deck plugin to eject all external disks on macOS",
     "scripts": {
         "lint:check": "prettier . --check",
