@@ -211,9 +211,8 @@ nonisolated internal func unmountAndEjectAsync(
 ) async -> DiskOperationResult {
   let startTime = Date()
 
-  // For ejection of external drives, DADiskEject should handle unmounting internally.
-  // EXPERIMENTAL: Testing whether we can skip the explicit unmount step.
-  // This optimization could reduce ejection time from ~10-12s to ~5-6s per disk.
+  // For ejection of external drives, unmount all volumes on the whole disk first,
+  // then eject the physical device
   if ejectAfterUnmount, let wholeDisk = volume.wholeDisk {
     // Get BSD name of whole disk for debugging
     let wholeDiskBSD: String
@@ -225,21 +224,33 @@ nonisolated internal func unmountAndEjectAsync(
 
     if debugCallbacks {
       print(
-        "[SwiftDiskArbitration] EXPERIMENTAL: Skipping unmount, attempting direct eject of \(wholeDiskBSD) for volume \(volume.info.name) (\(volume.info.bsdName ?? "?"))"
+        "[SwiftDiskArbitration] Step 1: Unmounting whole disk \(wholeDiskBSD) for volume \(volume.info.name) (\(volume.info.bsdName ?? "?"))"
       )
     }
 
-    // EXPERIMENTAL: Skip Step 1 (unmount) - testing if DADiskEject handles it
-    // Original implementation:
-    // - Step 1: DADiskUnmount with kDADiskUnmountOptionWhole
-    // - Step 2: DADiskEject
-    // New approach: DADiskEject only (should handle unmount internally)
-
-    if debugCallbacks {
-      print("[SwiftDiskArbitration] Ejecting whole disk \(wholeDiskBSD) directly")
+    // Step 1: Unmount all volumes on the whole disk
+    var unmountOptions = kDADiskUnmountOptionWhole
+    if force {
+      unmountOptions |= kDADiskUnmountOptionForce
     }
 
-    // Eject the physical device (should unmount internally)
+    let unmountResult = await unmountDiskAsync(
+      wholeDisk,
+      options: DADiskUnmountOptions(unmountOptions)
+    )
+
+    guard unmountResult.success else {
+      if debugCallbacks {
+        print("[SwiftDiskArbitration] Unmount failed: \(unmountResult.error?.description ?? "unknown")")
+      }
+      return unmountResult
+    }
+
+    if debugCallbacks {
+      print("[SwiftDiskArbitration] Step 2: Ejecting whole disk \(wholeDiskBSD)")
+    }
+
+    // Step 2: Eject the physical device
     let ejectResult = await ejectDiskAsync(wholeDisk)
     let totalDuration = Date().timeIntervalSince(startTime)
 

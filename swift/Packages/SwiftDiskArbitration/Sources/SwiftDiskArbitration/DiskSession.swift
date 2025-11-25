@@ -368,14 +368,31 @@ public actor DiskSession {
 
     // If we're ejecting the physical device
     if options.ejectPhysicalDevice {
-      // EXPERIMENTAL: Skip Step 1 (unmount) - testing if DADiskEject handles it internally
-      // Original implementation:
-      // - Step 1: DADiskUnmount with kDADiskUnmountOptionWhole
-      // - Step 2: DADiskEject
-      // New approach: DADiskEject only (should handle unmount internally)
-      // This optimization could reduce ejection time from ~10-12s to ~5-6s per disk.
+      // Step 1: Unmount all volumes on the whole disk
+      var unmountOptions = kDADiskUnmountOptionWhole
+      if options.force {
+        unmountOptions |= kDADiskUnmountOptionForce
+      }
 
-      // Eject the physical device (should unmount internally)
+      let unmountResult = await unmountDiskAsync(
+        deviceGroup.wholeDisk,
+        options: DADiskUnmountOptions(unmountOptions)
+      )
+
+      // If unmount failed, return failure for all volumes in this group
+      guard unmountResult.success else {
+        return deviceGroup.volumes.map { volume in
+          SingleEjectResult(
+            volumeName: volume.info.name,
+            volumePath: volume.info.path,
+            success: false,
+            errorMessage: unmountResult.error?.description ?? "Unmount failed",
+            duration: unmountResult.duration
+          )
+        }
+      }
+
+      // Step 2: Eject the physical device
       let ejectResult = await ejectDiskAsync(deviceGroup.wholeDisk)
       let totalDuration = Date().timeIntervalSince(operationStart)
 
