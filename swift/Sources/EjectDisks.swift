@@ -8,6 +8,7 @@
 
 import ArgumentParser
 import AppKit
+import Darwin
 import DiskArbitration
 import Foundation
 import SwiftDiskArbitration
@@ -76,67 +77,131 @@ func getEjectableVolumesLegacy() async -> [VolumeInfoOutput] {
     }
 }
 
-// MARK: - Process Discovery
+// MARK: - Process Discovery (Native libproc implementation)
 
-/// Parse lsof output into ProcessInfoOutput array
-nonisolated func parseLsofOutput(_ output: String) -> [ProcessInfoOutput] {
-    // Format: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME
-    var processes: [ProcessInfoOutput] = []
-    var seenPids: Set<String> = []
+/// Check if a process has any files open on the specified volume path
+nonisolated func processHasFilesOpen(pid: pid_t, volumePath: String) -> Bool {
+    // Get list of file descriptors for this process
+    let bufferSize = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
+    guard bufferSize > 0 else { return false }
 
-    for line in output.components(separatedBy: "\n") {
-        let parts = line.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
-        // Skip header line and empty lines
-        if parts.count >= 3 && parts[0] != "COMMAND" {
-            let pid = parts[1]
-            // Only add each PID once
-            if !seenPids.contains(pid) {
-                seenPids.insert(pid)
-                processes.append(ProcessInfoOutput(
-                    pid: pid,
-                    command: parts[0],
-                    user: parts[2]
-                ))
+    let fdCount = Int(bufferSize) / MemoryLayout<proc_fdinfo>.size
+    var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: fdCount)
+
+    let result = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, &fds, Int32(bufferSize))
+    guard result > 0 else { return false }
+
+    let actualCount = Int(result) / MemoryLayout<proc_fdinfo>.size
+
+    // Check each file descriptor
+    for i in 0..<actualCount {
+        let fd = fds[i]
+
+        // Only check vnodes (files, directories)
+        if fd.proc_fdtype == PROX_FDTYPE_VNODE {
+            var vnodeInfo = vnode_fdinfowithpath()
+            let vnodeSize = proc_pidfdinfo(
+                pid,
+                fd.proc_fd,
+                PROC_PIDFDVNODEPATHINFO,
+                &vnodeInfo,
+                Int32(MemoryLayout<vnode_fdinfowithpath>.size)
+            )
+
+            if vnodeSize > 0 {
+                // Extract the file path from the vnode info
+                let filePath = withUnsafePointer(to: &vnodeInfo.pvip.vip_path) { ptr in
+                    ptr.withMemoryRebound(to: CChar.self, capacity: Int(MAXPATHLEN)) {
+                        String(cString: $0)
+                    }
+                }
+
+                // Check if this file is on the target volume
+                if filePath.hasPrefix(volumePath) {
+                    return true
+                }
             }
         }
     }
-    return processes
+
+    return false
 }
 
-/// Get list of processes using a volume path via lsof
-/// Uses lsof +d (single level) for speed - +D recursive is too slow on large volumes
+/// Get list of processes using a volume path via native libproc APIs
+/// This replaces the lsof subprocess call for better performance
 nonisolated func getBlockingProcesses(path: String) -> [ProcessInfoOutput] {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-    // +d checks single directory level only (fast)
-    // +D would recursively search the entire volume (very slow - minutes on large drives)
-    process.arguments = ["+d", path]
+    var processes: [ProcessInfoOutput] = []
+    var seenPids: Set<pid_t> = []
 
-    let pipe = Pipe()
-    process.standardOutput = pipe
-    process.standardError = FileHandle.nullDevice
+    // Get all running processes
+    let maxPids = proc_listallpids(nil, 0)
+    guard maxPids > 0 else { return [] }
 
-    do {
-        try process.run()
+    var pids = [pid_t](repeating: 0, count: Int(maxPids))
+    let pidCount = proc_listallpids(&pids, Int32(MemoryLayout<pid_t>.size * pids.count))
+    guard pidCount > 0 else { return [] }
 
-        // Set a 5 second timeout just in case
-        let timeoutItem = DispatchWorkItem {
-            process.terminate()
-        }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 5, execute: timeoutItem)
+    let actualPidCount = Int(pidCount)
 
-        process.waitUntilExit()
-        timeoutItem.cancel()
+    // Check each process
+    for i in 0..<actualPidCount {
+        let pid = pids[i]
 
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let output = String(data: data, encoding: .utf8) else {
-            return []
+        // Skip invalid PIDs and duplicates
+        if pid == 0 || seenPids.contains(pid) {
+            continue
         }
 
-        return parseLsofOutput(output)
-    } catch {
-        return []
+        // Check if this process has files open on the volume
+        if processHasFilesOpen(pid: pid, volumePath: path) {
+            seenPids.insert(pid)
+
+            // Get process executable path
+            // PROC_PIDPATHINFO_MAXSIZE is 4*MAXPATHLEN but unavailable in Swift, use 4*MAXPATHLEN directly
+            let pathBufferSize = 4 * Int(MAXPATHLEN)
+            var pathBuffer = [CChar](repeating: 0, count: pathBufferSize)
+            let pathLen = proc_pidpath(pid, &pathBuffer, UInt32(pathBufferSize))
+
+            let command: String
+            if pathLen > 0 {
+                // Use the newer String decoding API, truncating at the actual path length
+                let execPath = String(decoding: pathBuffer.prefix(Int(pathLen)), as: UTF8.self)
+                command = URL(fileURLWithPath: execPath).lastPathComponent
+            } else {
+                command = "unknown"
+            }
+
+            // Get user info from BSD process info
+            var taskInfo = proc_bsdinfo()
+            let infoSize = proc_pidinfo(
+                pid,
+                PROC_PIDTBSDINFO,
+                0,
+                &taskInfo,
+                Int32(MemoryLayout<proc_bsdinfo>.size)
+            )
+
+            let user: String
+            if infoSize > 0 {
+                let uid = taskInfo.pbi_uid
+                if let pw = getpwuid(uid) {
+                    user = String(cString: pw.pointee.pw_name)
+                } else {
+                    user = "\(uid)"
+                }
+            } else {
+                user = "unknown"
+            }
+
+            processes.append(ProcessInfoOutput(
+                pid: String(pid),
+                command: command,
+                user: user
+            ))
+        }
     }
+
+    return processes
 }
 
 // MARK: - Fast Native Ejection (DADiskUnmount)
@@ -163,25 +228,61 @@ func ejectAllVolumesNative(force: Bool = false, verbose: Bool = false) async -> 
     let options = force ? EjectOptions.forceEject : EjectOptions.default
     let batchResult = await session.ejectAll(volumes, options: options)
 
-    // Convert to legacy output format with blocking process detection on failure
+    // Convert to legacy output format with parallel blocking process detection on failures
     var results: [EjectResult] = []
 
-    for singleResult in batchResult.results {
-        var blockingProcesses: [ProcessInfoOutput]? = nil
+    if verbose {
+        // Collect all failed volumes for parallel process detection
+        let failedResults = batchResult.results.filter { !$0.success }
 
-        // If failed and verbose, get blocking processes
-        if !singleResult.success && verbose {
-            let processes = getBlockingProcesses(path: singleResult.volumePath)
-            blockingProcesses = processes.isEmpty ? nil : processes
+        // Run blocking process detection in parallel for all failures
+        let blockingProcessesMap = await withTaskGroup(
+            of: (String, [ProcessInfoOutput]).self,
+            returning: [String: [ProcessInfoOutput]].self
+        ) { group in
+            for result in failedResults {
+                group.addTask {
+                    let processes = getBlockingProcesses(path: result.volumePath)
+                    return (result.volumePath, processes)
+                }
+            }
+
+            // Collect results into dictionary
+            var map: [String: [ProcessInfoOutput]] = [:]
+            for await (path, processes) in group {
+                map[path] = processes
+            }
+            return map
         }
 
-        results.append(EjectResult(
-            volume: singleResult.volumeName,
-            success: singleResult.success,
-            error: singleResult.errorMessage,
-            duration: singleResult.duration,
-            blockingProcesses: blockingProcesses
-        ))
+        // Build results with blocking processes for failures
+        for singleResult in batchResult.results {
+            let blockingProcesses: [ProcessInfoOutput]?
+            if !singleResult.success, let processes = blockingProcessesMap[singleResult.volumePath] {
+                blockingProcesses = processes.isEmpty ? nil : processes
+            } else {
+                blockingProcesses = nil
+            }
+
+            results.append(EjectResult(
+                volume: singleResult.volumeName,
+                success: singleResult.success,
+                error: singleResult.errorMessage,
+                duration: singleResult.duration,
+                blockingProcesses: blockingProcesses
+            ))
+        }
+    } else {
+        // No verbose mode - skip blocking process detection
+        results = batchResult.results.map { singleResult in
+            EjectResult(
+                volume: singleResult.volumeName,
+                success: singleResult.success,
+                error: singleResult.errorMessage,
+                duration: singleResult.duration,
+                blockingProcesses: nil
+            )
+        }
     }
 
     let totalDuration = Date().timeIntervalSince(startTime)
@@ -400,15 +501,27 @@ extension EjectDisks {
                 let results: [DiagnoseResult]
             }
 
-            var results: [DiagnoseResult] = []
+            // Run process detection in parallel for all volumes
+            let results = await withTaskGroup(
+                of: DiagnoseResult.self,
+                returning: [DiagnoseResult].self
+            ) { group in
+                for volume in volumes {
+                    group.addTask {
+                        let processes = getBlockingProcesses(path: volume.path)
+                        return DiagnoseResult(
+                            volume: volume.name,
+                            path: volume.path,
+                            blockingProcesses: processes
+                        )
+                    }
+                }
 
-            for volume in volumes {
-                let processes = getBlockingProcesses(path: volume.path)
-                results.append(DiagnoseResult(
-                    volume: volume.name,
-                    path: volume.path,
-                    blockingProcesses: processes
-                ))
+                var collectedResults: [DiagnoseResult] = []
+                for await result in group {
+                    collectedResults.append(result)
+                }
+                return collectedResults
             }
 
             let output = DiagnoseOutput(volumeCount: volumes.count, results: results)
