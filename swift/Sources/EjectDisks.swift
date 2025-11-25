@@ -164,7 +164,8 @@ nonisolated func getBlockingProcesses(path: String) -> [ProcessInfoOutput] {
 
             let command: String
             if pathLen > 0 {
-                let execPath = String(cString: pathBuffer)
+                // Use the newer String decoding API, truncating at the actual path length
+                let execPath = String(decoding: pathBuffer.prefix(Int(pathLen)), as: UTF8.self)
                 command = URL(fileURLWithPath: execPath).lastPathComponent
             } else {
                 command = "unknown"
