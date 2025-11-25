@@ -89,6 +89,18 @@ public final class Volume: @unchecked Sendable {
     // DADisk is a CFType, Swift handles release via ARC
     // wholeDisk is also managed by ARC
   }
+
+  /// Returns the BSD name of the whole disk (physical device).
+  /// For example, if this volume is "disk2s1", returns "disk2"
+  /// Returns nil if the whole disk reference is not available
+  internal var wholeDiskBSDName: String? {
+    guard let wholeDisk = wholeDisk,
+      let bsdName = DADiskGetBSDName(wholeDisk)
+    else {
+      return nil
+    }
+    return String(cString: bsdName)
+  }
 }
 
 // MARK: - Volume Discovery
