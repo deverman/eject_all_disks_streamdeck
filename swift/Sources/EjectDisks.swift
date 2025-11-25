@@ -157,8 +157,10 @@ nonisolated func getBlockingProcesses(path: String) -> [ProcessInfoOutput] {
             seenPids.insert(pid)
 
             // Get process executable path
-            var pathBuffer = [CChar](repeating: 0, count: Int(PROC_PIDPATHINFO_MAXSIZE))
-            let pathLen = proc_pidpath(pid, &pathBuffer, UInt32(PROC_PIDPATHINFO_MAXSIZE))
+            // PROC_PIDPATHINFO_MAXSIZE is 4*MAXPATHLEN but unavailable in Swift, use 4*MAXPATHLEN directly
+            let pathBufferSize = 4 * Int(MAXPATHLEN)
+            var pathBuffer = [CChar](repeating: 0, count: pathBufferSize)
+            let pathLen = proc_pidpath(pid, &pathBuffer, UInt32(pathBufferSize))
 
             let command: String
             if pathLen > 0 {
