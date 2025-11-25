@@ -195,10 +195,73 @@ public actor DiskSession {
 
   // MARK: - Batch Operations
 
-  /// Ejects all provided volumes in parallel.
+  /// Represents a physical device and all its volumes
+  /// Marked @unchecked Sendable because DADisk is thread-safe for our use case
+  private struct PhysicalDeviceGroup: @unchecked Sendable {
+    /// BSD name of the whole disk (e.g., "disk2")
+    let wholeDiskBSDName: String
+
+    /// All volumes on this physical device
+    let volumes: [Volume]
+
+    /// The whole disk reference (same for all volumes in this group)
+    let wholeDisk: DADisk
+  }
+
+  /// Groups volumes by their physical device (whole disk).
+  /// This allows us to unmount and eject each physical device once,
+  /// rather than processing each volume independently.
   ///
-  /// Uses Swift concurrency TaskGroup for true parallel execution.
-  /// Each volume is unmounted (and optionally ejected) concurrently.
+  /// - Parameter volumes: Array of volumes to group
+  /// - Returns: Array of physical device groups
+  private func groupVolumesByPhysicalDevice(_ volumes: [Volume]) -> [PhysicalDeviceGroup] {
+    var groups: [String: PhysicalDeviceGroup] = [:]
+
+    for volume in volumes {
+      // Get the whole disk BSD name
+      guard let wholeDiskBSDName = volume.wholeDiskBSDName,
+        let wholeDisk = volume.wholeDisk
+      else {
+        // If we can't get the whole disk, create a single-volume group
+        // using the volume's own BSD name as a fallback
+        let fallbackKey = volume.info.bsdName ?? UUID().uuidString
+        groups[fallbackKey] = PhysicalDeviceGroup(
+          wholeDiskBSDName: fallbackKey,
+          volumes: [volume],
+          wholeDisk: volume.disk
+        )
+        continue
+      }
+
+      // Add to existing group or create new one
+      if let existingGroup = groups[wholeDiskBSDName] {
+        var updatedVolumes = existingGroup.volumes
+        updatedVolumes.append(volume)
+        groups[wholeDiskBSDName] = PhysicalDeviceGroup(
+          wholeDiskBSDName: wholeDiskBSDName,
+          volumes: updatedVolumes,
+          wholeDisk: wholeDisk
+        )
+      } else {
+        groups[wholeDiskBSDName] = PhysicalDeviceGroup(
+          wholeDiskBSDName: wholeDiskBSDName,
+          volumes: [volume],
+          wholeDisk: wholeDisk
+        )
+      }
+    }
+
+    return Array(groups.values)
+  }
+
+  /// Ejects all provided volumes in parallel, grouped by physical device.
+  ///
+  /// Optimization: Groups volumes by their physical device (whole disk) first,
+  /// then unmounts and ejects each physical device once. This reduces redundant
+  /// operations when a disk has multiple partitions.
+  ///
+  /// Uses Swift concurrency TaskGroup for true parallel execution across
+  /// different physical devices.
   ///
   /// - Parameters:
   ///   - volumes: Array of volumes to eject
@@ -238,27 +301,40 @@ public actor DiskSession {
       )
     }
 
-    // Execute all ejections in parallel using TaskGroup
+    // Group volumes by their physical device
+    let deviceGroups = groupVolumesByPhysicalDevice(volumes)
+
+    // Debug: Print grouping information
+    if deviceGroups.count < volumes.count {
+      print(
+        "[DiskSession] Grouped \(volumes.count) volumes into \(deviceGroups.count) physical device(s)"
+      )
+      for group in deviceGroups {
+        print(
+          "  - \(group.wholeDiskBSDName): \(group.volumes.count) volume(s) (\(group.volumes.map { $0.info.name }.joined(separator: ", ")))"
+        )
+      }
+    }
+
+    // Process each physical device in parallel
     let results = await withTaskGroup(
-      of: SingleEjectResult.self, returning: [SingleEjectResult].self
+      of: [SingleEjectResult].self, returning: [SingleEjectResult].self
     ) { group in
-      for volume in volumes {
+      for deviceGroup in deviceGroups {
         group.addTask {
-          let result = await self.unmount(volume, options: options)
-          return SingleEjectResult(
-            volumeName: volume.info.name,
-            volumePath: volume.info.path,
-            success: result.success,
-            errorMessage: result.error?.description,
-            duration: result.duration
+          // Eject this entire physical device (all volumes on it)
+          let deviceResult = await self.ejectPhysicalDevice(
+            deviceGroup,
+            options: options
           )
+          return deviceResult
         }
       }
 
       var collected: [SingleEjectResult] = []
       collected.reserveCapacity(volumes.count)
-      for await result in group {
-        collected.append(result)
+      for await groupResults in group {
+        collected.append(contentsOf: groupResults)
       }
       return collected
     }
@@ -273,6 +349,81 @@ public actor DiskSession {
       results: results,
       totalDuration: totalDuration
     )
+  }
+
+  /// Ejects a physical device and all its volumes.
+  ///
+  /// This method unmounts all volumes on the device with kDADiskUnmountOptionWhole,
+  /// then ejects the physical device once.
+  ///
+  /// - Parameters:
+  ///   - deviceGroup: The physical device group to eject
+  ///   - options: Unmount/eject options
+  /// - Returns: Array of results for each volume in the group
+  private func ejectPhysicalDevice(
+    _ deviceGroup: PhysicalDeviceGroup,
+    options: EjectOptions
+  ) async -> [SingleEjectResult] {
+    let operationStart = Date()
+
+    // If we're ejecting the physical device
+    if options.ejectPhysicalDevice {
+      // Step 1: Unmount all volumes on the whole disk
+      var unmountOptions = kDADiskUnmountOptionWhole
+      if options.force {
+        unmountOptions |= kDADiskUnmountOptionForce
+      }
+
+      let unmountResult = await unmountDiskAsync(
+        deviceGroup.wholeDisk,
+        options: DADiskUnmountOptions(unmountOptions)
+      )
+
+      // If unmount failed, return failure for all volumes in this group
+      guard unmountResult.success else {
+        return deviceGroup.volumes.map { volume in
+          SingleEjectResult(
+            volumeName: volume.info.name,
+            volumePath: volume.info.path,
+            success: false,
+            errorMessage: unmountResult.error?.description ?? "Unmount failed",
+            duration: unmountResult.duration
+          )
+        }
+      }
+
+      // Step 2: Eject the physical device
+      let ejectResult = await ejectDiskAsync(deviceGroup.wholeDisk)
+      let totalDuration = Date().timeIntervalSince(operationStart)
+
+      // Return the same result for all volumes in this group
+      return deviceGroup.volumes.map { volume in
+        SingleEjectResult(
+          volumeName: volume.info.name,
+          volumePath: volume.info.path,
+          success: ejectResult.success,
+          errorMessage: ejectResult.error?.description,
+          duration: totalDuration
+        )
+      }
+    } else {
+      // Unmount-only mode: unmount each volume individually
+      // (This is less common, but we support it for backwards compatibility)
+      var results: [SingleEjectResult] = []
+      for volume in deviceGroup.volumes {
+        let result = await unmount(volume, options: options)
+        results.append(
+          SingleEjectResult(
+            volumeName: volume.info.name,
+            volumePath: volume.info.path,
+            success: result.success,
+            errorMessage: result.error?.description,
+            duration: result.duration
+          )
+        )
+      }
+      return results
+    }
   }
 
   /// Ejects all currently mounted external volumes.
