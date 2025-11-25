@@ -196,7 +196,8 @@ public actor DiskSession {
   // MARK: - Batch Operations
 
   /// Represents a physical device and all its volumes
-  private struct PhysicalDeviceGroup {
+  /// Marked @unchecked Sendable because DADisk is thread-safe for our use case
+  private struct PhysicalDeviceGroup: @unchecked Sendable {
     /// BSD name of the whole disk (e.g., "disk2")
     let wholeDiskBSDName: String
 
@@ -233,7 +234,7 @@ public actor DiskSession {
       }
 
       // Add to existing group or create new one
-      if var existingGroup = groups[wholeDiskBSDName] {
+      if let existingGroup = groups[wholeDiskBSDName] {
         var updatedVolumes = existingGroup.volumes
         updatedVolumes.append(volume)
         groups[wholeDiskBSDName] = PhysicalDeviceGroup(
