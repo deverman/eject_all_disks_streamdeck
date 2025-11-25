@@ -146,11 +146,11 @@ internal let ejectCallback: DADiskEjectCallback = { disk, dissenter, context in
 /// Unmounts a disk asynchronously using DADiskUnmount
 ///
 /// - Parameters:
-///   - disk: The DADisk to unmount
+///   - disk: The DADisk to unmount (sending - safe to transfer across isolation boundaries)
 ///   - options: Unmount options (default or force)
 /// - Returns: Result of the unmount operation
 internal func unmountDiskAsync(
-  _ disk: DADisk,
+  _ disk: sending DADisk,
   options: DADiskUnmountOptions = DADiskUnmountOptions(kDADiskUnmountOptionDefault)
 ) async -> DiskOperationResult {
   await withCheckedContinuation { continuation in
@@ -164,11 +164,11 @@ internal func unmountDiskAsync(
 /// Ejects a disk asynchronously using DADiskEject
 ///
 /// - Parameters:
-///   - disk: The DADisk to eject (should be whole disk for physical ejection)
+///   - disk: The DADisk to eject (should be whole disk for physical ejection, sending - safe to transfer across isolation boundaries)
 ///   - options: Eject options
 /// - Returns: Result of the eject operation
 internal func ejectDiskAsync(
-  _ disk: DADisk,
+  _ disk: sending DADisk,
   options: DADiskEjectOptions = DADiskEjectOptions(kDADiskEjectOptionDefault)
 ) async -> DiskOperationResult {
   await withCheckedContinuation { continuation in
