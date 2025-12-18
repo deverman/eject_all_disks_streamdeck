@@ -385,8 +385,9 @@ export class EjectAllDisks extends SingletonAction {
 				};
 				streamDeck.logger.info(`Sending to property inspector: ${JSON.stringify(response)}`);
 
-				// Send to the property inspector for this specific action
-				await ev.action.sendToPropertyInspector(response);
+				// Send to the property inspector
+				// Using streamDeck.ui.current which represents the currently focused action's UI
+				await streamDeck.ui.current?.sendToPropertyInspector(response);
 
 				streamDeck.logger.info("Successfully sent to property inspector");
 			} catch (error) {
