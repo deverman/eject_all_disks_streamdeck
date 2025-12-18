@@ -343,6 +343,66 @@ cd ..
 
 The packaged file will be in `dist/org.deverman.ejectalldisks.streamDeckPlugin`.
 
+### Releasing New Versions
+
+This project uses GitHub Actions to automate the release process. When you create a new release on GitHub, the workflow automatically builds and packages the plugin, then attaches it to the release.
+
+#### Step-by-Step Release Process
+
+**1. Update the version number:**
+
+```bash
+npm run version:bump 2.0.0
+```
+
+This script updates `manifest.json` with the new version (converted to 4-part format: `2.0.0.0`).
+
+**2. Commit the version change:**
+
+```bash
+git add org.deverman.ejectalldisks.sdPlugin/manifest.json
+git commit -m "Bump version to 2.0.0"
+```
+
+**3. Create and push a git tag:**
+
+```bash
+git tag -a v2.0.0 -m "Release v2.0.0"
+git push && git push origin v2.0.0
+```
+
+**4. Create the GitHub release:**
+
+Option A - Using GitHub web interface:
+1. Go to https://github.com/deverman/eject_all_disks_streamdeck/releases/new?tag=v2.0.0
+2. Fill in the release title and notes
+3. Click "Publish release"
+
+Option B - Using GitHub CLI:
+```bash
+gh release create v2.0.0 \
+  --title "v2.0.0" \
+  --notes "Release notes here"
+```
+
+**5. Wait for automation:**
+
+GitHub Actions will automatically:
+- Build the TypeScript code
+- Package the plugin
+- Upload `org.deverman.ejectalldisks.streamDeckPlugin` to the release
+
+Users can then download the plugin directly from the releases page!
+
+#### Version Numbering
+
+Follow [Semantic Versioning](https://semver.org/):
+- **MAJOR** (x.0.0): Breaking changes
+- **MINOR** (1.x.0): New features (backwards compatible)
+- **PATCH** (1.0.x): Bug fixes
+
+Note: Stream Deck uses 4-part versioning in `manifest.json` (e.g., `2.0.0.0`), but Git tags and releases use 3-part versioning (e.g., `v2.0.0`).
+
 ### Implementation Details
 
 #### SVG Icons

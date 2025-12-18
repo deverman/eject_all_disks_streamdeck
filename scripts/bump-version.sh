@@ -29,10 +29,12 @@ echo "🔄 Bumping version to $VERSION..."
 echo ""
 
 # Update manifest.json (macOS compatible sed)
+# Note: We need to match only the top-level "Version" field (after "Name")
+# and not the Nodejs "Version" field, so we use a more specific pattern
 if [[ "$OSTYPE" == "darwin"* ]]; then
-  sed -i '' "s/\"Version\": \"[^\"]*\"/\"Version\": \"$MANIFEST_VERSION\"/" org.deverman.ejectalldisks.sdPlugin/manifest.json
+  sed -i '' "2,5s/\"Version\": \"[^\"]*\"/\"Version\": \"$MANIFEST_VERSION\"/" org.deverman.ejectalldisks.sdPlugin/manifest.json
 else
-  sed -i "s/\"Version\": \"[^\"]*\"/\"Version\": \"$MANIFEST_VERSION\"/" org.deverman.ejectalldisks.sdPlugin/manifest.json
+  sed -i "2,5s/\"Version\": \"[^\"]*\"/\"Version\": \"$MANIFEST_VERSION\"/" org.deverman.ejectalldisks.sdPlugin/manifest.json
 fi
 
 echo "✅ Updated manifest.json to version $MANIFEST_VERSION"
