@@ -337,7 +337,10 @@ npx streamdeck pack org.deverman.ejectalldisks.sdPlugin --output dist
 # Method 2: Manual packaging
 mkdir -p dist
 cd org.deverman.ejectalldisks.sdPlugin
-zip -r ../dist/org.deverman.ejectalldisks.streamDeckPlugin . -x "*.DS_Store"
+zip -r ../dist/org.deverman.ejectalldisks.streamDeckPlugin . \
+  -x "*.DS_Store" \
+  -x "logs/*" \
+  -x "*.log"
 cd ..
 ```
 
