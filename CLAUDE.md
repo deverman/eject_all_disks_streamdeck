@@ -1,6 +1,17 @@
 # CLAUDE.md - AI Assistant Guide for Stream Deck Plugin Development
 
-This document provides architectural guidance and critical gotchas for AI assistants (or developers) working on this Stream Deck plugin that calls Swift command-line binaries.
+**Generic Guide for Stream Deck + Swift Binary Plugins**
+
+This document provides architectural guidance and critical gotchas for AI assistants (or developers) working on Stream Deck plugins that integrate Swift command-line binaries.
+
+**Use Case:** This guide is designed for plugins that need native macOS functionality (via Swift frameworks) called from a TypeScript/Node.js Stream Deck plugin.
+
+**Examples:** DiskArbitration (disk management), IOKit (hardware), Core Audio (audio devices), IOBluetooth (Bluetooth), Security (keychain)
+
+> **📖 How to use this guide:**
+> This is a **generic template** with placeholders like `com.yourname.pluginname` and `swift-binary`.
+> See [Adapting This Guide to Your Project](#adapting-this-guide-to-your-project) at the bottom for how to customize it.
+> The gotchas and architectural patterns apply to ANY Stream Deck plugin with Swift integration.
 
 ## Table of Contents
 
@@ -23,11 +34,11 @@ This is a **Stream Deck SDK 2.0 (beta)** plugin with these components:
 ```
 ┌─────────────────────────────────────────────────┐
 │ Stream Deck Application                         │
-│  └─> Loads: org.deverman.ejectalldisks.sdPlugin │
+│  └─> Loads: com.yourname.pluginname.sdPlugin    │
 │       ├─> Node.js 20 Runtime                    │
 │       │    └─> bin/plugin.js (compiled TS)      │
 │       └─> Swift Binary                          │
-│            └─> bin/eject-disks (native)         │
+│            └─> bin/swift-binary (native)        │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -35,13 +46,15 @@ This is a **Stream Deck SDK 2.0 (beta)** plugin with these components:
 - **Frontend:** TypeScript → JavaScript (via Rollup)
 - **Native Binary:** Swift → Compiled executable
 - **SDK:** Stream Deck SDK 2.0 (beta) - TypeScript types may be incomplete
-- **Platform:** macOS only (uses DiskArbitration framework)
+- **Platform:** macOS only (when using macOS-specific Swift frameworks)
 - **Package Format:** `.streamDeckPlugin` (renamed .zip file)
 
 **Build Order (CRITICAL):**
-1. Swift binary (`npm run build:swift`) → `bin/eject-disks`
+1. Swift binary (`npm run build:swift`) → `bin/swift-binary`
 2. TypeScript code (`npm run build`) → `bin/plugin.js`
-3. Package plugin (zip) → `dist/org.deverman.ejectalldisks.streamDeckPlugin`
+3. Package plugin (zip) → `dist/com.yourname.pluginname.streamDeckPlugin`
+
+> **This Project Example:** We use Swift to access macOS DiskArbitration framework for fast parallel disk ejection (~6x faster than shell commands). Your use case might be Core Audio, IOKit, or other macOS-specific functionality.
 
 ---
 
@@ -52,16 +65,23 @@ This is a **Stream Deck SDK 2.0 (beta)** plugin with these components:
 #### 1. **Stream Deck 7.x Package Structure**
 ```bash
 # ❌ WRONG - Files at root
-cd org.deverman.ejectalldisks.sdPlugin
+cd com.yourname.pluginname.sdPlugin
 zip -r ../plugin.streamDeckPlugin .
 
 # ✅ CORRECT - Include folder name
-zip -r plugin.streamDeckPlugin org.deverman.ejectalldisks.sdPlugin
+zip -r plugin.streamDeckPlugin com.yourname.pluginname.sdPlugin
 ```
 
 **Why:** Stream Deck 7.x expects the .streamDeckPlugin file to contain a folder with the plugin files inside it, not files at the root. Installing a plugin with files at root gives: `"Error: No plugin found in bundle"`
 
 **Location:** `.github/workflows/main.yml` packaging step
+
+**How to verify:**
+```bash
+unzip -l plugin.streamDeckPlugin | head -5
+# Should show: com.yourname.pluginname.sdPlugin/manifest.json
+# NOT: manifest.json
+```
 
 ---
 
@@ -76,15 +96,17 @@ zip -r plugin.streamDeckPlugin org.deverman.ejectalldisks.sdPlugin
 
 - name: Verify Swift binary exists
   run: |
-    if [ ! -f "org.deverman.ejectalldisks.sdPlugin/bin/eject-disks" ]; then
+    if [ ! -f "com.yourname.pluginname.sdPlugin/bin/swift-binary" ]; then
       echo "Error: Swift binary missing!"
       exit 1
     fi
 ```
 
-**Why:** The Node.js code expects the Swift binary to exist at `bin/eject-disks`. If you package without the Swift binary, the disk count badge won't work.
+**Why:** If you built the TypeScript/Node.js plugin before the Swift binary existed, and then committed the packaged `.streamDeckPlugin` file to git, the old package (without the Swift binary) will be what gets distributed. Even if you later build the Swift binary locally, the committed package won't include it.
 
-**Symptoms:** Plugin installs but no disk count badge appears
+**Symptoms:** Plugin installs but Swift-dependent features don't work (e.g., no dynamic state updates, native operations fail)
+
+**The Real Issue:** This is often combined with **Gotcha #5** (committed build artifacts). The Swift binary was missing from an old committed package, not from the current build.
 
 ---
 
@@ -182,7 +204,7 @@ let execPath = String(
 
 ---
 
-#### 9. **Sudoers Path Escaping**
+#### 9. **Sudoers Path Escaping (If Using Passwordless Sudo)**
 ```bash
 # ❌ WRONG - Spaces not escaped
 /Users/user/Library/Application Support/com.elgato.StreamDeck/...
@@ -191,16 +213,20 @@ let execPath = String(
 /Users/user/Library/Application\ Support/com.elgato.StreamDeck/...
 ```
 
-**Why:** sudoers file requires escaped spaces. Without this, `sudo -n` will always ask for password.
+**Why:** The sudoers file format requires escaped spaces in paths. Stream Deck plugins are installed in `~/Library/Application Support/com.elgato.StreamDeck/Plugins/` which contains spaces. If your setup script creates a sudoers rule without escaping these spaces, `sudo -n` will fail to match the path and always ask for password.
 
-**Fix in install script:**
+**Fix in privilege setup script:**
 ```bash
-ESCAPED_BINARY=$(echo "$EJECT_BINARY" | sed 's/ /\\ /g')
+# Escape spaces in the binary path for sudoers format
+ESCAPED_BINARY=$(echo "$SWIFT_BINARY_PATH" | sed 's/ /\\ /g')
+SUDOERS_RULE="$CURRENT_USER ALL=(ALL) NOPASSWD: $ESCAPED_BINARY *"
 ```
 
-**Location:** `org.deverman.ejectalldisks.sdPlugin/bin/install-eject-privileges.sh`
+**Location:** `com.yourname.pluginname.sdPlugin/bin/install-privileges.sh` (or similar setup script)
 
-**Symptom:** Setup script runs successfully but Property Inspector shows "✗ Not configured"
+**Symptom:** Privilege setup script runs successfully but status check still shows "not configured" or sudo still asks for password
+
+**Note:** Only relevant if your Swift binary needs elevated privileges (sudo) to access system resources
 
 ---
 
@@ -223,16 +249,27 @@ await streamDeck.ui.sendToPropertyInspector(response);
 
 ### Local Development Build
 ```bash
-npm run build:swift  # Compiles Swift → bin/eject-disks
+npm run build:swift  # Compiles Swift → bin/swift-binary
 npm run build        # Compiles TypeScript → bin/plugin.js
 ```
 
 **Output:**
 ```
-org.deverman.ejectalldisks.sdPlugin/
+com.yourname.pluginname.sdPlugin/
 └── bin/
     ├── plugin.js       # From TypeScript
-    └── eject-disks     # From Swift
+    └── swift-binary    # From Swift
+```
+
+**package.json scripts example:**
+```json
+{
+  "scripts": {
+    "build:swift": "swift build -c release --package-path swift && cp swift/.build/release/swift-binary com.yourname.pluginname.sdPlugin/bin/",
+    "build": "rollup -c",
+    "watch": "streamdeck dev"
+  }
+}
 ```
 
 ### Watch Mode (Development)
@@ -249,8 +286,8 @@ npm run watch
 ### Production Packaging
 ```bash
 mkdir -p dist
-zip -r dist/org.deverman.ejectalldisks.streamDeckPlugin \
-  org.deverman.ejectalldisks.sdPlugin \
+zip -r dist/com.yourname.pluginname.streamDeckPlugin \
+  com.yourname.pluginname.sdPlugin \
   -x "*.DS_Store" \
   -x "*/logs/*" \
   -x "*.log" \
@@ -259,7 +296,7 @@ zip -r dist/org.deverman.ejectalldisks.streamDeckPlugin \
   -x "*/pi/*"
 ```
 
-**Critical:** Include the folder name in the zip, not just its contents
+**Critical:** Include the folder name in the zip, not just its contents (see Gotcha #1)
 
 ---
 
@@ -312,15 +349,15 @@ on:
 - name: Build plugin
   run: npm run build
 
-# ✅ Verify binary exists
+# ✅ Verify binary exists (CRITICAL - catches missing binary before packaging)
 - name: Verify build output
   run: |
-    if [ ! -f "org.deverman.ejectalldisks.sdPlugin/bin/eject-disks" ]; then
-      echo "Error: Swift binary eject-disks not found"
+    if [ ! -f "com.yourname.pluginname.sdPlugin/bin/swift-binary" ]; then
+      echo "Error: Swift binary not found after build"
       exit 1
     fi
-    if [ ! -f "org.deverman.ejectalldisks.sdPlugin/bin/plugin.js" ]; then
-      echo "Error: plugin.js not found"
+    if [ ! -f "com.yourname.pluginname.sdPlugin/bin/plugin.js" ]; then
+      echo "Error: plugin.js not found after build"
       exit 1
     fi
 ```
@@ -330,8 +367,8 @@ on:
 - name: Package plugin
   run: |
     mkdir -p dist
-    zip -r dist/org.deverman.ejectalldisks.streamDeckPlugin \
-      org.deverman.ejectalldisks.sdPlugin \
+    zip -r dist/com.yourname.pluginname.streamDeckPlugin \
+      com.yourname.pluginname.sdPlugin \
       -x "*.DS_Store" \
       -x "*/logs/*" \
       -x "*.log" \
@@ -365,17 +402,17 @@ on:
 
 ### Directory Layout
 ```
-org.deverman.ejectalldisks.sdPlugin/
+com.yourname.pluginname.sdPlugin/
 ├── manifest.json          # Plugin metadata - CRITICAL
 ├── bin/                   # Compiled output
 │   ├── plugin.js          # From TypeScript build
-│   ├── eject-disks        # From Swift build
-│   └── install-eject-privileges.sh  # Privilege setup script
-├── ui/                    # Property Inspector
+│   ├── swift-binary       # From Swift build
+│   └── install-privileges.sh  # Optional: Privilege setup script (if using sudo)
+├── ui/                    # Property Inspector (optional)
 │   └── property-inspector.html
 ├── imgs/                  # Icons
 │   ├── actions/
-│   │   ├── eject/        # SVG icons for states
+│   │   ├── actionname/   # SVG/PNG icons for different states
 │   └── plugin/           # Plugin icon
 └── logs/                  # Runtime logs (auto-created, excluded from package)
 ```
@@ -384,34 +421,35 @@ org.deverman.ejectalldisks.sdPlugin/
 
 ```json
 {
-  "Name": "Eject All Disks",
-  "Version": "2.0.2.0",  // 4-part format
-  "Author": "Brent Deverman",
-  "UUID": "org.deverman.ejectalldisks",  // Must match folder name
+  "Name": "Your Plugin Name",
+  "Version": "1.0.0.0",  // 4-part format (CRITICAL - see Gotcha #6)
+  "Author": "Your Name",
+  "UUID": "com.yourname.pluginname",  // Must match folder name pattern
 
   "Nodejs": {
     "Version": "20"
-    // DON'T add Debug field here
+    // ❌ DON'T add "Debug": "enabled" here (see Gotcha #7)
+    // It's not a valid field and will break installation
   },
 
   "Actions": [
     {
-      "UUID": "org.deverman.ejectalldisks.eject",
-      "Name": "Eject All Disks",
-      "Icon": "imgs/actions/eject/eject",  // Without extension
+      "UUID": "com.yourname.pluginname.actionname",
+      "Name": "Action Display Name",
+      "Icon": "imgs/actions/actionname/icon",  // Without extension
       "States": [
         {
-          "Image": "imgs/actions/eject/eject"
+          "Image": "imgs/actions/actionname/icon"
         }
       ],
-      "PropertyInspectorPath": "ui/property-inspector.html"
+      "PropertyInspectorPath": "ui/property-inspector.html"  // Optional
     }
   ],
 
   "OS": [
     {
       "Platform": "mac",
-      "MinimumVersion": "12.0"
+      "MinimumVersion": "12.0"  // Adjust based on your Swift framework requirements
     }
   ],
 
@@ -423,31 +461,45 @@ org.deverman.ejectalldisks.sdPlugin/
 ```
 
 **Validation:**
-- `UUID` must match plugin folder name pattern
-- `Version` must be 4-part (x.y.z.w)
+- `UUID` must match plugin folder name pattern (e.g., `com.yourname.pluginname` → `com.yourname.pluginname.sdPlugin`)
+- `Version` must be 4-part format: `MAJOR.MINOR.PATCH.BUILD` (e.g., `1.0.0.0`)
 - Icon paths are without extension (.png/.svg auto-detected)
 - `SDKVersion: 2` for SDK 2.0 beta
+- `Nodejs.Version` should stay `"20"` - don't modify when bumping plugin version (see Gotcha #6)
 
 ---
 
 ## Swift Binary Integration
 
 ### Purpose
-The Swift binary (`eject-disks`) uses macOS DiskArbitration framework for fast, parallel disk ejection (~6x faster than `diskutil`).
+Swift binaries allow you to access native macOS frameworks that aren't available in Node.js, such as:
+- **DiskArbitration** - Disk management and ejection
+- **IOKit** - Hardware and device interaction
+- **Core Audio** - Audio device control
+- **IOBluetooth** - Bluetooth device management
+- **Security** - Keychain and certificate access
+
+> **This Project Example:** We use Swift to access the DiskArbitration framework for parallel disk ejection (~6x faster than spawning shell commands).
 
 ### Build Configuration
 
 **File:** `swift/Package.swift`
 ```swift
 let package = Package(
-    name: "EjectDisks",
+    name: "YourBinaryName",
     platforms: [
-        .macOS(.v12)  // Minimum macOS 12
+        .macOS(.v12)  // Minimum macOS version (adjust as needed)
     ],
     products: [
         .executable(
-            name: "eject-disks",
-            targets: ["EjectDisks"]
+            name: "swift-binary",  // Output binary name
+            targets: ["YourBinaryName"]
+        )
+    ],
+    targets: [
+        .executableTarget(
+            name: "YourBinaryName",
+            dependencies: []
         )
     ]
 )
@@ -457,7 +509,7 @@ let package = Package(
 ```json
 {
   "scripts": {
-    "build:swift": "swift build -c release --package-path swift && cp swift/.build/release/eject-disks org.deverman.ejectalldisks.sdPlugin/bin/"
+    "build:swift": "swift build -c release --package-path swift && cp swift/.build/release/swift-binary com.yourname.pluginname.sdPlugin/bin/"
   }
 }
 ```
@@ -467,20 +519,37 @@ let package = Package(
 **TypeScript calls Swift binary:**
 ```typescript
 import { spawn } from 'child_process';
+import * as path from 'path';
 
-const swiftBinary = path.join(__dirname, 'eject-disks');
+const swiftBinary = path.join(__dirname, 'swift-binary');
 
-// Count disks
-const countProcess = spawn(swiftBinary, ['list']);
+// Example: Call binary with arguments
+const process = spawn(swiftBinary, ['command', 'arg1', 'arg2']);
 
-// Eject all
-const ejectProcess = spawn('sudo', ['-n', swiftBinary, 'eject', '--verbose']);
+process.stdout.on('data', (data) => {
+  console.log(`Output: ${data}`);
+});
+
+process.stderr.on('data', (data) => {
+  console.error(`Error: ${data}`);
+});
+
+process.on('close', (code) => {
+  console.log(`Exited with code: ${code}`);
+});
+```
+
+**If your binary needs sudo privileges:**
+```typescript
+// Use 'sudo -n' for passwordless execution (requires sudoers setup - see Gotcha #9)
+const process = spawn('sudo', ['-n', swiftBinary, 'command', 'arg1']);
 ```
 
 **Important:**
-- Use `sudo -n` for passwordless execution (requires sudoers setup)
-- Always provide absolute path to binary
-- Handle both stdout and stderr
+- Always use absolute path to binary (via `path.join(__dirname, 'swift-binary')`)
+- Handle both stdout and stderr streams
+- Check exit codes for error handling
+- For sudo operations, set up sudoers with escaped paths (Gotcha #9)
 
 ### Common Swift Issues
 
@@ -522,15 +591,28 @@ let str = String(bytes: bytes, encoding: .utf8) ?? "unknown"
 ```bash
 #!/bin/bash
 VERSION=$1
-MANIFEST_VERSION="${VERSION}.0"  # Add .0 for Stream Deck
+MANIFEST_VERSION="${VERSION}.0"  # Add .0 for Stream Deck 4-part format
 
 # ✅ CRITICAL: Only update plugin Version, NOT Nodejs.Version
-# Use line range 2,5 to target only the top-level Version field
+# Use line range to target only the top-level Version field
+# Adjust range based on your manifest.json structure (typically lines 2-5)
 sed -i '' "2,5s/\"Version\": \"[^\"]*\"/\"Version\": \"$MANIFEST_VERSION\"/" \
-  org.deverman.ejectalldisks.sdPlugin/manifest.json
+  com.yourname.pluginname.sdPlugin/manifest.json
+
+echo "✅ Updated manifest.json to version $MANIFEST_VERSION"
 ```
 
-**Why the line range:** Without it, sed would also modify `"Nodejs": {"Version": "20"}` to `"Nodejs": {"Version": "2.0.2.0"}`, breaking the plugin.
+**Why the line range (2,5):** Without it, sed would match BOTH occurrences of `"Version"`:
+1. Line 3: `"Version": "1.0.0.0"` ✅ (what we want to change)
+2. Line 8: `"Nodejs": {"Version": "20"}` ❌ (must NOT change)
+
+Without the line range, sed would change `"Nodejs": {"Version": "20"}` to `"Nodejs": {"Version": "2.0.2.0"}`, breaking the plugin.
+
+**Verify your line numbers:**
+```bash
+cat -n com.yourname.pluginname.sdPlugin/manifest.json | head -10
+```
+Adjust the `2,5` range to match where your top-level `"Version"` field appears.
 
 ### Release Process
 
@@ -570,7 +652,7 @@ gh release create v2.0.2 \
 ### Task 1: Fix TypeScript Code
 ```bash
 # 1. Make changes in src/
-vim src/actions/eject-all-disks.ts
+vim src/actions/your-action.ts
 
 # 2. Lint and format
 npm run lint:fix
@@ -579,22 +661,23 @@ npm run lint:fix
 npm run build
 
 # 4. Test in Stream Deck
-npx streamdeck restart org.deverman.ejectalldisks
+npx streamdeck restart com.yourname.pluginname
 ```
 
 ### Task 2: Fix Swift Binary
 ```bash
 # 1. Make changes in swift/
-vim swift/Sources/EjectDisks.swift
+vim swift/Sources/YourBinary.swift
 
 # 2. Build Swift binary
 npm run build:swift
 
-# 3. Verify binary exists
-ls -lh org.deverman.ejectalldisks.sdPlugin/bin/eject-disks
+# 3. Verify binary exists and is executable
+ls -lh com.yourname.pluginname.sdPlugin/bin/swift-binary
+chmod +x com.yourname.pluginname.sdPlugin/bin/swift-binary
 
 # 4. Test in Stream Deck
-npx streamdeck restart org.deverman.ejectalldisks
+npx streamdeck restart com.yourname.pluginname
 ```
 
 ### Task 3: Update Dependencies
@@ -615,32 +698,40 @@ npm outdated
 tail -f ~/Library/Logs/ElgatoStreamDeck/StreamDeck0.log
 
 # 2. Check plugin logs
-tail -f ~/Library/Application\ Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin/logs/*.log
+tail -f ~/Library/Application\ Support/com.elgato.StreamDeck/Plugins/com.yourname.pluginname.sdPlugin/logs/*.log
 
-# 3. Test package structure
-unzip -l dist/org.deverman.ejectalldisks.streamDeckPlugin | head -20
-# Should show: org.deverman.ejectalldisks.sdPlugin/manifest.json
+# 3. Test package structure (CRITICAL - see Gotcha #1)
+unzip -l dist/plugin.streamDeckPlugin | head -20
+# Should show: com.yourname.pluginname.sdPlugin/manifest.json
 # NOT: manifest.json
 
-# 4. Remove quarantine (if needed)
-xattr -rc dist/org.deverman.ejectalldisks.streamDeckPlugin
+# 4. Verify Swift binary is in package
+unzip -l dist/plugin.streamDeckPlugin | grep swift-binary
+# Should show: com.yourname.pluginname.sdPlugin/bin/swift-binary
+
+# 5. Remove quarantine (if needed on macOS)
+xattr -rc dist/plugin.streamDeckPlugin
 ```
 
-### Task 5: Test Sudoers Setup
+### Task 5: Test Sudoers Setup (If Using Passwordless Sudo)
 ```bash
 # 1. Check if sudoers file exists
-ls -l /etc/sudoers.d/eject-disks
+ls -l /etc/sudoers.d/your-plugin-name
 
 # 2. View sudoers rule
-sudo cat /etc/sudoers.d/eject-disks
+sudo cat /etc/sudoers.d/your-plugin-name
 
-# 3. Test passwordless sudo
-sudo -n /path/to/eject-disks --version
+# 3. Verify path has escaped spaces (CRITICAL - see Gotcha #9)
+# Should show: /Users/user/Library/Application\ Support/com.elgato.StreamDeck/...
+# NOT: /Users/user/Library/Application Support/com.elgato.StreamDeck/...
+
+# 4. Test passwordless sudo
+sudo -n ~/Library/Application\ Support/com.elgato.StreamDeck/Plugins/com.yourname.pluginname.sdPlugin/bin/swift-binary --version
 # Should NOT ask for password
 
-# 4. If it asks for password, check for spaces in path
-# Path should have escaped spaces:
-# /Users/user/Library/Application\ Support/com.elgato.StreamDeck/...
+# 5. If it asks for password, delete and recreate with escaped spaces
+sudo rm /etc/sudoers.d/your-plugin-name
+# Then re-run your privilege setup script
 ```
 
 ---
@@ -704,27 +795,53 @@ grep -i error ~/Library/Logs/ElgatoStreamDeck/StreamDeck0.log
 
 ---
 
-### Issue: Disk Count Badge Not Showing
+### Issue: Swift Binary Features Not Working
 
-**Symptom:** Plugin installs but no red badge with disk count
+**Symptom:** Plugin installs but Swift-dependent features don't work (e.g., dynamic state updates, badge counts, native operations fail)
 
-**Causes:**
-1. **Swift binary missing from package**
+**Root Cause:** This is almost always because the Swift binary is **missing from the packaged .streamDeckPlugin file**, usually due to **committed build artifacts** (Gotcha #5).
+
+**Diagnosis:**
+1. **Check if Swift binary is in the package**
    ```bash
-   unzip -l plugin.streamDeckPlugin | grep eject-disks
-   # Should show: org.deverman.ejectalldisks.sdPlugin/bin/eject-disks
+   unzip -l dist/plugin.streamDeckPlugin | grep swift-binary
+   # Should show: com.yourname.pluginname.sdPlugin/bin/swift-binary
    ```
 
-2. **Swift binary not built before packaging**
+2. **If missing, check git history**
+   ```bash
+   git log --all --full-history -- dist/
+   # If you see commits here, you committed build artifacts
+   ```
+
+**Fixes:**
+1. **Remove committed build artifacts**
+   ```bash
+   git rm -r dist/
+   echo "dist/" >> .gitignore
+   git commit -m "Remove committed build artifacts"
+   ```
+
+2. **Rebuild with Swift binary FIRST**
    ```bash
    npm run build:swift
-   ls -lh org.deverman.ejectalldisks.sdPlugin/bin/eject-disks
-   # Should show ~150KB file
+   ls -lh com.yourname.pluginname.sdPlugin/bin/swift-binary
+   # Should show a file (size depends on your binary)
+   npm run build
    ```
 
-3. **Permissions issue**
+3. **Verify binary is executable**
    ```bash
-   chmod +x org.deverman.ejectalldisks.sdPlugin/bin/eject-disks
+   chmod +x com.yourname.pluginname.sdPlugin/bin/swift-binary
+   ```
+
+4. **Package and verify**
+   ```bash
+   # Package (following Gotcha #1 - include folder name)
+   zip -r dist/plugin.streamDeckPlugin com.yourname.pluginname.sdPlugin
+
+   # Verify Swift binary is in package
+   unzip -l dist/plugin.streamDeckPlugin | grep swift-binary
    ```
 
 ---
@@ -830,15 +947,25 @@ When creating a new release:
 
 ### Why Swift Binary Instead of Pure Node.js?
 
-**Decision:** Use native Swift binary with DiskArbitration framework
+**When to use Swift binaries:**
+- Need access to macOS-specific frameworks (DiskArbitration, IOKit, Core Audio, etc.)
+- Performance-critical operations that benefit from native code
+- Hardware interaction not available via Node.js
+- Need to call private/undocumented macOS APIs
 
-**Rationale:**
-- ~6x faster than spawning `diskutil` for each disk
-- Parallel ejection with Swift concurrency
-- Native macOS APIs for reliability
-- Can detect blocking processes
+**Advantages:**
+- Direct access to macOS frameworks not available in Node.js
+- Significantly faster than spawning shell commands repeatedly
+- Can use Swift concurrency for parallel operations
+- Type-safe, compiled code with better error handling
 
-**Trade-off:** Requires macOS, adds build complexity
+**Trade-offs:**
+- macOS only (Swift binaries won't run on Windows)
+- Adds build complexity (two separate build pipelines)
+- Harder to debug than pure JavaScript
+- Requires macOS for development and CI/CD
+
+**This Project Example:** We use Swift to access DiskArbitration framework for parallel disk ejection (~6x faster than spawning `diskutil` shell commands).
 
 ---
 
@@ -846,13 +973,20 @@ When creating a new release:
 
 **Decision:** Use Stream Deck SDK 2.0 (beta) instead of stable 1.x
 
-**Rationale:**
-- Better TypeScript support
+**Advantages:**
+- Better TypeScript support and type definitions
 - Improved action state management
 - Modern WebSocket-based communication
-- Required for Property Inspector features
+- Better Property Inspector integration
+- Simplified API surface
 
-**Trade-off:** Incomplete TypeScript types, need `@ts-ignore` in places
+**Trade-offs:**
+- Incomplete TypeScript types (need `@ts-ignore` workarounds - see Gotcha #10)
+- Beta software may have breaking changes
+- Less documentation and community support
+- Some APIs exist at runtime but not in type definitions
+
+**Recommendation:** Use SDK 2.0 for new projects. The TypeScript improvements outweigh the beta limitations.
 
 ---
 
@@ -860,31 +994,93 @@ When creating a new release:
 
 **Decision:** Automate build and release with GitHub Actions
 
-**Rationale:**
-- Consistent build environment (same macOS version)
-- Automatically attaches plugin to releases
-- No manual packaging errors
+**Advantages:**
+- Consistent build environment (everyone uses same macOS version, Swift version, Node version)
+- Automatically builds and attaches `.streamDeckPlugin` to releases
+- Eliminates manual packaging errors
+- Catches build errors before release
 - Free for public repos
+- Built-in integration with GitHub Releases
 
-**Trade-off:** Initial setup complexity, need to learn YAML
+**Trade-offs:**
+- Initial setup complexity (learn YAML syntax)
+- Debugging workflow failures can be slow (push → wait → check logs)
+- macOS runners can be slow to start
+- Limited to 6-hour job timeout
+
+**Recommendation:** Always use CI/CD for releases. Manual packaging inevitably leads to errors (see all 10 gotchas).
 
 ---
 
 ## Final Tips for AI Assistants
 
-1. **Always verify Swift binary in package** - This was the #1 missed issue
-2. **Never commit dist/ folder** - Caused version confusion
-3. **Check package structure** - Stream Deck 7.x needs folder in zip
-4. **Test locally before GitHub Actions** - Run lint, build, verify
-5. **Read error messages carefully** - Stream Deck logs are very helpful
-6. **Escape spaces in shell paths** - sudoers, bash scripts, anywhere
-7. **SDK 2.0 beta = incomplete types** - Use @ts-ignore when needed
-8. **Build order matters** - Swift first, then TypeScript, then package
-9. **4-part versions in manifest** - Don't forget the .0
-10. **GitHub Actions permissions** - contents:write for releases
+When working on a Stream Deck plugin with Swift binaries, prioritize these issues:
+
+1. **Always verify Swift binary in package** (#1 most common issue)
+   - Check with: `unzip -l dist/plugin.streamDeckPlugin | grep swift-binary`
+   - If missing, almost always due to committed build artifacts (Gotcha #5)
+
+2. **Never commit dist/ folder** (Gotcha #5)
+   - Causes version confusion and missing binaries
+   - Always add to .gitignore
+
+3. **Check package structure** (Gotcha #1)
+   - Stream Deck 7.x needs folder name in zip
+   - Verify with: `unzip -l plugin.streamDeckPlugin | head -5`
+
+4. **Test locally before pushing to GitHub Actions**
+   - Run `npm run lint:fix` (avoid formatting failures)
+   - Run `npm run build:swift && npm run build` (test build order)
+   - Verify both binaries exist before packaging
+
+5. **Read error messages carefully**
+   - Stream Deck logs: `~/Library/Logs/ElgatoStreamDeck/StreamDeck0.log`
+   - "No plugin found in bundle" = wrong package structure (Gotcha #1)
+   - Version mismatch = committed build artifacts (Gotcha #5)
+
+6. **Escape spaces in shell paths** (Gotcha #9)
+   - sudoers files require: `Application\ Support`
+   - Use: `sed 's/ /\\ /g'` to escape
+
+7. **SDK 2.0 beta = incomplete types** (Gotcha #10)
+   - Use `@ts-ignore` for runtime APIs not in type definitions
+   - Don't try to "fix" by using non-existent APIs
+
+8. **Build order is critical** (Gotcha #2)
+   - Swift FIRST, then TypeScript, then package
+   - Add verification steps in CI/CD
+
+9. **4-part versions in manifest.json** (Gotcha #6)
+   - Manifest uses: `"1.0.0.0"` (4-part)
+   - Git tags use: `v1.0.0` (3-part)
+   - Don't modify `Nodejs.Version` when bumping
+
+10. **GitHub Actions needs permissions** (Gotcha #3)
+    - Add `permissions: contents: write` for releases
+    - Use modern actions (Gotcha #4)
 
 ---
 
-**Last Updated:** 2025-01-XX (Update this when making significant changes)
+## Adapting This Guide to Your Project
+
+This guide uses placeholders like `com.yourname.pluginname` and `swift-binary`. To adapt it to your specific project:
+
+**Find and replace these placeholders:**
+- `com.yourname.pluginname` → your plugin UUID (e.g., `com.acme.volumecontrol`)
+- `swift-binary` → your binary name (e.g., `audio-controller`)
+- `YourBinaryName` → your Swift package name (e.g., `AudioController`)
+
+**Update paths in scripts:**
+- `com.yourname.pluginname.sdPlugin/` → your actual plugin folder
+- `swift/.build/release/swift-binary` → your actual Swift build output
+
+**Customize for your use case:**
+- Replace "This Project Example" sections with your specific Swift framework usage
+- Update manifest.json template with your actual actions and UUIDs
+- Adjust macOS version requirements based on frameworks you use
+
+---
+
+**Last Updated:** 2025-01-18 (Update this when making significant changes)
 
 **Maintained by:** Claude AI Assistant & Brent Deverman
