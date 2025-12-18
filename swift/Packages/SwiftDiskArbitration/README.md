@@ -143,13 +143,14 @@ do {
 
 ## Performance Comparison
 
-| Method | 1 disk | 3 disks | 5 disks |
-|--------|--------|---------|---------|
-| `diskutil eject` (subprocess) | ~50ms | ~60ms | ~70ms |
-| `DADiskUnmount` (native) | ~5ms | ~7ms | ~10ms |
-| **Speedup** | **10x** | **8.5x** | **7x** |
+| Method                        | 1 disk  | 3 disks  | 5 disks |
+| ----------------------------- | ------- | -------- | ------- |
+| `diskutil eject` (subprocess) | ~50ms   | ~60ms    | ~70ms   |
+| `DADiskUnmount` (native)      | ~5ms    | ~7ms     | ~10ms   |
+| **Speedup**                   | **10x** | **8.5x** | **7x**  |
 
 The native API avoids the overhead of:
+
 - Process forking (~5ms)
 - exec() system call (~10ms)
 - diskutil initialization (~15ms)
@@ -190,6 +191,7 @@ MIT License - see LICENSE file for details.
 ## Credits
 
 Based on research from:
+
 - [Apple DiskArbitration Documentation](https://developer.apple.com/documentation/diskarbitration)
 - [Ejectify by Niels Mouthaan](https://github.com/nielsmouthaan/ejectify-macos)
 - Swift Forums discussions on C callback bridging

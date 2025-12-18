@@ -28,29 +28,38 @@
 			<div class="sdpi-item">
 				<div class="sdpi-item-label">Status</div>
 				<div class="sdpi-item-value">
-					<span id="setupStatus" style="color: #888;">Checking...</span>
+					<span id="setupStatus" style="color: #888">Checking...</span>
 				</div>
 			</div>
 
-			<div id="setupInstructions" class="sdpi-item" style="display: none;">
+			<div id="setupInstructions" class="sdpi-item" style="display: none">
 				<details class="message">
 					<summary>Setup Instructions</summary>
-					<p style="font-size: 11px; margin: 8px 0; line-height: 1.4;">
+					<p style="font-size: 11px; margin: 8px 0; line-height: 1.4">
 						To eject disks without password prompts, run the setup script once:
 					</p>
-					<ol style="font-size: 11px; margin: 8px 0; padding-left: 20px; line-height: 1.6;">
+					<ol style="font-size: 11px; margin: 8px 0; padding-left: 20px; line-height: 1.6">
 						<li>Open Terminal</li>
-						<li>Run: <code id="setupCommand" style="background: #333; padding: 2px 4px; border-radius: 3px; font-size: 10px;">Loading...</code></li>
+						<li>
+							Run:
+							<code id="setupCommand" style="background: #333; padding: 2px 4px; border-radius: 3px; font-size: 10px"
+								>Loading...</code
+							>
+						</li>
 						<li>Enter your admin password when prompted</li>
 						<li>Click "Check Status" to verify</li>
 					</ol>
-					<button id="copyCommand" class="sdpi-item-value" style="margin: 8px 0; padding: 4px 8px; cursor: pointer;">Copy Command</button>
+					<button id="copyCommand" class="sdpi-item-value" style="margin: 8px 0; padding: 4px 8px; cursor: pointer">
+						Copy Command
+					</button>
 				</details>
 			</div>
 
 			<div class="sdpi-item">
 				<div class="sdpi-item-label"></div>
-				<button id="checkStatus" class="sdpi-item-value" style="padding: 6px 12px; cursor: pointer;">Check Status</button>
+				<button id="checkStatus" class="sdpi-item-value" style="padding: 6px 12px; cursor: pointer">
+					Check Status
+				</button>
 			</div>
 		</div>
 
@@ -172,7 +181,7 @@
 							},
 							function () {
 								document.getElementById("copyCommand").textContent = "Failed to copy";
-							}
+							},
 						);
 					}
 				});

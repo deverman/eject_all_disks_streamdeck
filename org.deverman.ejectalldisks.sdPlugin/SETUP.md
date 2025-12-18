@@ -7,11 +7,12 @@ This plugin uses macOS DiskArbitration framework for fast disk ejection. For the
 1. Open **Terminal** (Applications → Utilities → Terminal)
 
 2. Run the setup script:
-   ```bash
-   bash "/path/to/plugin/bin/install-eject-privileges.sh"
-   ```
 
-   The exact path depends on where Stream Deck installed the plugin. You can find it in the property inspector by clicking the action in Stream Deck and looking at the "Privilege Setup" section.
+    ```bash
+    bash "/path/to/plugin/bin/install-eject-privileges.sh"
+    ```
+
+    The exact path depends on where Stream Deck installed the plugin. You can find it in the property inspector by clicking the action in Stream Deck and looking at the "Privilege Setup" section.
 
 3. Enter your admin password when prompted
 
@@ -27,6 +28,7 @@ The setup script creates a sudoers rule that allows the eject-disks binary to ru
 - No other commands or binaries are affected
 
 The setup creates a file at `/etc/sudoers.d/eject-disks` with the following content:
+
 ```
 YOUR_USERNAME ALL=(ALL) NOPASSWD: /path/to/eject-disks *
 ```
@@ -40,6 +42,7 @@ After running the setup script, you can verify it works:
 3. Click "Check Status" - it should show "✓ Configured"
 
 Or test from Terminal:
+
 ```bash
 sudo -n /path/to/eject-disks --version
 ```
@@ -69,16 +72,21 @@ For the most reliable experience, we recommend completing the setup.
 ## Troubleshooting
 
 ### Setup script not found
+
 If the property inspector shows "Setup script not found", ensure the plugin is properly installed. Try reinstalling the plugin from Stream Deck.
 
 ### Permission denied
+
 If you get a permission denied error when running the setup script, make sure you're running it with `bash` and that you have administrator privileges on your Mac.
 
 ### Sudo syntax error
+
 If the sudoers configuration fails validation, the setup script will automatically remove the invalid configuration. Try running the setup script again.
 
 ### Disks still not ejecting
+
 If disks still fail to eject after setup:
+
 1. Make sure no applications are using files on the disk
 2. Try closing all Finder windows
 3. Use the force eject option if available

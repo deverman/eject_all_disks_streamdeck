@@ -597,9 +597,7 @@ export class EjectAllDisks extends SingletonAction {
 			if (binaryPath) {
 				// Check if sudo is configured for passwordless execution
 				const useSudo = await this.checkSudoConfiguration();
-				const ejectCommand = useSudo
-					? `sudo -n "${binaryPath}" eject --verbose`
-					: `"${binaryPath}" eject --verbose`;
+				const ejectCommand = useSudo ? `sudo -n "${binaryPath}" eject --verbose` : `"${binaryPath}" eject --verbose`;
 
 				streamDeck.logger.info(`Using eject command: ${useSudo ? "with sudo" : "without sudo"}`);
 
@@ -711,7 +709,9 @@ export class EjectAllDisks extends SingletonAction {
 			}
 
 			// Handle results
-			streamDeck.logger.info(`Decision point: ejectError=${ejectError ? 'SET' : 'null'}, ejectResult=${ejectResult ? 'SET' : 'null'}`);
+			streamDeck.logger.info(
+				`Decision point: ejectError=${ejectError ? "SET" : "null"}, ejectResult=${ejectResult ? "SET" : "null"}`,
+			);
 			if (ejectError) {
 				streamDeck.logger.error(`SHOWING ERROR ICON - Error ejecting disks: ${ejectError}`);
 
