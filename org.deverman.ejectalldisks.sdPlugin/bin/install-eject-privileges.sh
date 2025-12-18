@@ -55,7 +55,9 @@ read -p "Press Enter to continue or Ctrl+C to cancel..."
 
 # Create the sudoers rule
 SUDOERS_FILE="/etc/sudoers.d/eject-disks"
-SUDOERS_RULE="$CURRENT_USER ALL=(ALL) NOPASSWD: $EJECT_BINARY *"
+# Escape spaces in the path for sudoers format
+ESCAPED_BINARY=$(echo "$EJECT_BINARY" | sed 's/ /\\ /g')
+SUDOERS_RULE="$CURRENT_USER ALL=(ALL) NOPASSWD: $ESCAPED_BINARY *"
 
 echo ""
 echo "Creating sudoers rule..."
