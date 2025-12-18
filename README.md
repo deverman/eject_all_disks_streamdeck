@@ -374,11 +374,13 @@ git push && git push origin v2.0.0
 **4. Create the GitHub release:**
 
 Option A - Using GitHub web interface:
+
 1. Go to https://github.com/deverman/eject_all_disks_streamdeck/releases/new?tag=v2.0.0
 2. Fill in the release title and notes
 3. Click "Publish release"
 
 Option B - Using GitHub CLI:
+
 ```bash
 gh release create v2.0.0 \
   --title "v2.0.0" \
@@ -388,6 +390,7 @@ gh release create v2.0.0 \
 **5. Wait for automation:**
 
 GitHub Actions will automatically:
+
 - Build the TypeScript code
 - Package the plugin
 - Upload `org.deverman.ejectalldisks.streamDeckPlugin` to the release
@@ -397,6 +400,7 @@ Users can then download the plugin directly from the releases page!
 #### Version Numbering
 
 Follow [Semantic Versioning](https://semver.org/):
+
 - **MAJOR** (x.0.0): Breaking changes
 - **MINOR** (1.x.0): New features (backwards compatible)
 - **PATCH** (1.0.x): Bug fixes
@@ -430,6 +434,7 @@ Settings are implemented using:
 The plugin uses a Swift CLI binary for fast parallel disk ejection:
 
 **Primary method (Swift binary with DiskArbitration):**
+
 - Uses macOS DiskArbitration framework (`DADiskUnmount` + `DADiskEject`)
 - ~6x faster than `diskutil eject` subprocess calls
 - Unmounts all volumes on a physical disk, then ejects the device
@@ -441,6 +446,7 @@ The plugin uses a Swift CLI binary for fast parallel disk ejection:
 If the Swift binary is unavailable, the plugin falls back to a shell script that runs `diskutil eject` for each volume in parallel.
 
 **Diagnostic commands:**
+
 ```bash
 # List ejectable volumes
 ./eject-disks list

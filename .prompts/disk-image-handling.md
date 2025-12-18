@@ -19,6 +19,7 @@ Add special handling for disk images to use `hdiutil detach` instead of DiskArbi
 ### 1. Detect Disk Images
 
 The code already detects disk images in `Volume.swift`:
+
 - `Volume.info.isDiskImage` boolean flag is set during enumeration
 - Detection happens in `checkIfDiskImage(disk:)` at line 221
 
@@ -42,6 +43,7 @@ nonisolated internal func detachDiskImageAsync(
 ```
 
 Implementation should:
+
 - Use `Process` to run `hdiutil detach /dev/bsdName`
 - Add `-force` flag if `force` is true
 - Capture stdout/stderr
@@ -54,6 +56,7 @@ Implementation should:
 Modify `ejectPhysicalDevice()` in `DiskSession.swift` (around line 300):
 
 **Current flow:**
+
 ```swift
 if options.ejectPhysicalDevice {
   // Step 1: Unmount
@@ -65,6 +68,7 @@ if options.ejectPhysicalDevice {
 ```
 
 **New flow:**
+
 ```swift
 if options.ejectPhysicalDevice {
   // Check if all volumes in this group are disk images
@@ -94,6 +98,7 @@ if options.ejectPhysicalDevice {
 ### 5. Testing
 
 Test with:
+
 ```bash
 # Create a multi-partition disk image
 hdiutil create -size 200m -layout GPTSPUD -fs "Case-sensitive APFS" /tmp/multipart.dmg
@@ -109,6 +114,7 @@ sudo ./org.deverman.ejectalldisks.sdPlugin/bin/eject-disks eject
 ```
 
 Expected behavior:
+
 - Both partitions should eject without "Not privileged" errors
 - Debug output should show using `hdiutil detach` for disk images
 - Grouping optimization should still work (2 volumes → 1 physical device)
@@ -116,11 +122,11 @@ Expected behavior:
 ## Files to Modify
 
 1. **`swift/Packages/SwiftDiskArbitration/Sources/SwiftDiskArbitration/Internal/CallbackBridge.swift`**
-   - Add `detachDiskImageAsync()` function
+    - Add `detachDiskImageAsync()` function
 
 2. **`swift/Packages/SwiftDiskArbitration/Sources/SwiftDiskArbitration/DiskSession.swift`**
-   - Modify `ejectPhysicalDevice()` method (around line 300)
-   - Add logic to detect disk images and use `hdiutil` when appropriate
+    - Modify `ejectPhysicalDevice()` method (around line 300)
+    - Add logic to detect disk images and use `hdiutil` when appropriate
 
 ## Success Criteria
 
