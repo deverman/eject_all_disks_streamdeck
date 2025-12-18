@@ -31,16 +31,34 @@ jobs:
         run: npm run lint:check
         continue-on-error: true
 
+      - name: Build Swift binary
+        run: npm run build:swift
+
       - name: Build plugin
         run: npm run build
 
       - name: Verify build output
         run: |
+          echo "Checking required files..."
           if [ ! -f "org.deverman.ejectalldisks.sdPlugin/bin/plugin.js" ]; then
             echo "Error: plugin.js not found after build"
             exit 1
           fi
-          echo "Build output verified successfully"
+          if [ ! -f "org.deverman.ejectalldisks.sdPlugin/bin/eject-disks" ]; then
+            echo "Error: Swift binary eject-disks not found after build"
+            exit 1
+          fi
+          if [ ! -f "org.deverman.ejectalldisks.sdPlugin/bin/install-eject-privileges.sh" ]; then
+            echo "Error: install-eject-privileges.sh not found"
+            exit 1
+          fi
+          echo "✅ All required files present"
+          echo ""
+          echo "Contents of bin directory:"
+          ls -lh org.deverman.ejectalldisks.sdPlugin/bin/
+          echo ""
+          echo "Swift binary info:"
+          file org.deverman.ejectalldisks.sdPlugin/bin/eject-disks
 
       - name: Install StreamDeck CLI
         run: npm install -g @elgato/cli
