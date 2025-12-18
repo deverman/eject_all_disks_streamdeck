@@ -76,7 +76,8 @@ jobs:
             -x "logs/*" \
             -x "*.log" \
             -x ".git/*" \
-            -x ".gitignore"
+            -x ".gitignore" \
+            -x "pi/*"
           cd ..
 
       - name: Verify package
