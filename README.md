@@ -28,16 +28,34 @@ A Stream Deck plugin that adds a button to safely eject all external disks on ma
 
 ## Initial Setup (One-Time)
 
-For the fastest and most reliable disk ejection, run the privilege setup script once:
+### Passwordless Disk Ejection Setup (Recommended)
 
-1. Open the Stream Deck action's property inspector (click on the Eject All Disks button)
-2. In the "Privilege Setup" section, check the status
-3. If not configured, copy the setup command and run it in Terminal
-4. Enter your admin password when prompted
+For the best experience, configure one-time passwordless disk ejection. This optional setup allows the plugin to eject disks without requiring you to enter your password each time.
 
-This configures your system to allow passwordless disk ejection using macOS's sudoers mechanism. Without this setup, the plugin will still work but may show "Not privileged" errors for some volumes.
+**Why set this up?**
+- No password prompts when ejecting disks
+- Faster and more reliable ejection using native macOS DiskArbitration framework
+- Seamless one-button operation
 
-For detailed instructions, see [SETUP.md](org.deverman.ejectalldisks.sdPlugin/SETUP.md).
+**What it does:**
+The setup script adds a single rule to your macOS sudoers configuration (`/etc/sudoers.d/eject-disks`) that grants passwordless privileges **only** to the specific eject binary (`eject-disks`) included with this plugin. No other system permissions are granted.
+
+**Setup Steps:**
+
+1. Open the Stream Deck action's property inspector (click the gear icon on the Eject All Disks button)
+2. In the "Privilege Setup" section, check the current status
+3. If it shows "✗ Not configured":
+   - Click "Setup Instructions" to expand the section
+   - Click "Copy Command" to copy the setup command
+   - Open Terminal and paste the command
+   - Enter your admin password when prompted
+   - Click "Check Status" to verify the setup succeeded
+4. You should now see "✓ Configured" in green
+
+**Without this setup:**
+The plugin will still function but will fall back to slower disk ejection methods and may show "Not privileged" warnings for some volumes. You'll need to enter your password each time certain disks are ejected.
+
+For detailed instructions and troubleshooting, see [SETUP.md](org.deverman.ejectalldisks.sdPlugin/SETUP.md).
 
 ## Usage
 
@@ -466,25 +484,38 @@ If the Swift binary is unavailable, the plugin falls back to a shell script that
 
 ### Common Issues
 
-1. **"Not privileged" error:**
+1. **"Not privileged" error or "✗ Not configured" status:**
     - Run the privilege setup script (see [Initial Setup](#initial-setup-one-time))
-    - Check the property inspector to verify setup status
-    - The setup is required for the native DiskArbitration APIs to work
+    - After running the setup script, click "Check Status" in the Property Inspector to verify
+    - You should see "✓ Configured" in green
+    - If the status still shows "✗ Not configured" after setup:
+      - Verify the sudoers file was created: `ls -l /etc/sudoers.d/eject-disks`
+      - Check the sudoers file format: `sudo cat /etc/sudoers.d/eject-disks`
+      - The path should have escaped spaces (e.g., `Application\ Support`)
+      - If the path looks incorrect, delete the file and re-run setup: `sudo rm /etc/sudoers.d/eject-disks`
+      - Test sudo access manually: `sudo -n /path/to/eject-disks --version` (should not ask for password)
 
-2. **Button shows error state:**
+2. **Setup command fails or asks for password every time:**
+    - Make sure you're running the exact command provided in the Property Inspector
+    - The command should start with `sudo bash -c`
+    - If you see "syntax error" or "permission denied", the sudoers path may have unescaped spaces
+    - Try re-installing the plugin (version 2.0.2 or later) which includes the fix for path escaping
+
+3. **Button shows error state:**
     - Check the plugin logs for which process is blocking ejection
     - Common blockers: Spotlight (`mds`), backup apps (Time Machine), file sync apps (Dropbox)
-    - Run `./eject-disks diagnose` to see blocking processes
+    - Run the eject binary directly to diagnose: `./eject-disks diagnose`
     - Try pressing the button again - temporary locks often release quickly
 
-3. **Disk won't eject but Finder can eject it:**
+4. **Disk won't eject but Finder can eject it:**
     - Finder sends a "please close files" notification to apps before ejecting
     - The native API doesn't send this notification
     - Pause or quit the blocking application, then try again
 
-4. **Settings not saving:**
+5. **Settings not saving:**
     - Restart Stream Deck software
-    - Check permissions
+    - Check plugin logs for errors
+    - Try removing and re-adding the action button
 
 ## License
 
