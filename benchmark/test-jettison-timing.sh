@@ -68,8 +68,8 @@ echo ""
 
 START=$(date +%s.%N)
 
-# Trigger Jettison
-osascript -e 'tell application "Jettison" to eject all disks' 2>&1
+# Trigger Jettison (correct syntax: just "eject", not "eject all disks")
+osascript -e 'tell application "Jettison" to eject' 2>&1
 
 # Poll until all volumes are gone
 POLL_COUNT=0
@@ -131,5 +131,5 @@ echo "  → Jettison is working correctly"
 echo "  → This is the real ejection time to use in benchmarks"
 echo ""
 echo "For benchmark-suite.sh, use this command:"
-echo "  JETTISON_CMD='osascript -e \"tell application \\\"Jettison\\\" to eject all disks\" && while [[ \$($BINARY_PATH count) -gt 0 ]]; do sleep 0.1; done'"
+echo "  JETTISON_CMD='osascript -e \"tell application \\\"Jettison\\\" to eject\" && while [[ \$(\"\$BINARY_PATH\" count) -gt 0 ]]; do sleep 0.1; done'"
 echo ""

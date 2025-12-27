@@ -349,7 +349,8 @@ if [[ "$HAS_JETTISON" == true ]]; then
     # We trigger via AppleScript, then poll until volumes are gone
     # This ensures we measure the full ejection time
     # Using our binary's count to detect completion (more reliable than grepping diskutil output)
-    JETTISON_CMD="osascript -e 'tell application \"Jettison\" to eject all disks' && while [[ \$(\"\$BINARY_PATH\" count) -gt 0 ]]; do sleep 0.1; done"
+    # Correct AppleScript syntax: just "eject", not "eject all disks"
+    JETTISON_CMD="osascript -e 'tell application \"Jettison\" to eject' && while [[ \$(\"\$BINARY_PATH\" count) -gt 0 ]]; do sleep 0.1; done"
 
     JETTISON_AVG=$(benchmark_method \
         "Jettison (via AppleScript)" \

@@ -68,7 +68,7 @@ echo ""
 # Step 5: Test Jettison command
 echo "Step 5: Does Jettison AppleScript work?"
 echo "========================================"
-echo "Testing: osascript -e 'tell application \"Jettison\" to eject all disks'"
+echo "Testing: osascript -e 'tell application \"Jettison\" to eject'"
 echo ""
 
 if ! command -v osascript &> /dev/null; then
@@ -83,10 +83,18 @@ else
         read -r
 
         START=$(date +%s.%N)
-        osascript -e 'tell application "Jettison" to eject all disks' 2>&1
+        OUTPUT=$(osascript -e 'tell application "Jettison" to eject' 2>&1)
+        APPLESCRIPT_EXIT=$?
         END=$(date +%s.%N)
         APPLESCRIPT_TIME=$(echo "$END - $START" | bc)
 
+        echo ""
+        if [[ $APPLESCRIPT_EXIT -ne 0 ]]; then
+            echo "❌ AppleScript error:"
+            echo "$OUTPUT"
+        else
+            echo "✅ AppleScript succeeded"
+        fi
         echo ""
         echo "AppleScript completed in: ${APPLESCRIPT_TIME}s"
         echo ""
