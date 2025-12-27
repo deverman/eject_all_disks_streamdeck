@@ -192,15 +192,16 @@ benchmark_method() {
     local method_cmd="$2"
     local results_file="$3"
 
-    echo -e "${GREEN}Benchmarking: $method_name${NC}"
-    echo "  Running $RUNS tests..."
+    # Send all diagnostic output to stderr so only the number is captured
+    echo -e "${GREEN}Benchmarking: $method_name${NC}" >&2
+    echo "  Running $RUNS tests..." >&2
 
     local times=()
     local success_counts=()
     local total_counts=()
 
     for run in $(seq 1 $RUNS); do
-        echo -n "  Run $run/$RUNS: "
+        echo -n "  Run $run/$RUNS: " >&2
 
         # Run the ejection command and capture output
         local start_time=$(date +%s.%N)
@@ -208,6 +209,7 @@ benchmark_method() {
         output=$(eval "$method_cmd" 2>&1)
         local end_time=$(date +%s.%N)
 
+        # Calculate elapsed time BEFORE remounting (don't include remount time)
         local elapsed=$(echo "$end_time - $start_time" | bc)
         times+=("$elapsed")
 
@@ -217,18 +219,18 @@ benchmark_method() {
             local total=$(echo "$output" | grep -o '"totalCount":[0-9]*' | grep -o '[0-9]*')
             success_counts+=("$success")
             total_counts+=("$total")
-            echo "${elapsed}s (${success}/${total} ejected)"
+            echo "${elapsed}s (${success}/${total} ejected)" >&2
         else
-            echo "${elapsed}s"
+            echo "${elapsed}s" >&2
         fi
 
         # Save raw output
         echo "$output" >> "$results_file"
         echo "---" >> "$results_file"
 
-        # Remount for next run (except on last run)
+        # Remount for next run (except on last run) - AFTER timing stops
         if [[ $run -lt $RUNS ]]; then
-            remount_volumes
+            remount_volumes >&2
         fi
     done
 
@@ -259,15 +261,15 @@ benchmark_method() {
     variance=$(echo "scale=4; $variance / ${#times[@]}" | bc)
     local stddev=$(echo "scale=4; sqrt($variance)" | bc)
 
-    echo ""
-    echo "  Results:"
-    echo "    Average: ${avg}s"
-    echo "    Min:     ${min}s"
-    echo "    Max:     ${max}s"
-    echo "    StdDev:  ${stddev}s"
-    echo ""
+    echo "" >&2
+    echo "  Results:" >&2
+    echo "    Average: ${avg}s" >&2
+    echo "    Min:     ${min}s" >&2
+    echo "    Max:     ${max}s" >&2
+    echo "    StdDev:  ${stddev}s" >&2
+    echo "" >&2
 
-    # Return average time (we'll capture it via echo)
+    # Return average time to stdout (this is what gets captured)
     echo "$avg"
 }
 
