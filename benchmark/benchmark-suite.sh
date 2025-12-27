@@ -197,9 +197,15 @@ if [[ ${#DMG_PATHS[@]} -gt 0 ]]; then
         hdiutil attach "$dmg" >/dev/null 2>&1 || true
     done
 else
-    echo "  Please remount your drives manually, then press Enter..."
-    read -r
+    # Use our mount command for automatic remounting
+    MOUNT_OUTPUT=$($BINARY_CMD mount --compact 2>&1)
+    if echo "$MOUNT_OUTPUT" | grep -q '"successCount"'; then
+        SUCCESS=$(echo "$MOUNT_OUTPUT" | grep -o '"successCount":[0-9]*' | grep -o '[0-9]*')
+        TOTAL=$(echo "$MOUNT_OUTPUT" | grep -o '"totalCount":[0-9]*' | grep -o '[0-9]*')
+        echo "  Mounted $SUCCESS/$TOTAL volumes"
+    fi
 fi
+sleep 2  # Wait for volumes to stabilize
 echo ""
 
 # Function to remount all volumes
@@ -210,9 +216,16 @@ remount_volumes() {
             hdiutil attach "$dmg" >/dev/null 2>&1 || true
         done
     else
-        # For real volumes, we can't auto-remount - user must do it manually
-        echo -e "${YELLOW}Please remount all volumes manually, then press Enter to continue...${NC}"
-        read -r
+        # Use our blazing-fast mount command for real volumes
+        echo -e "${BLUE}Auto-mounting volumes...${NC}" >&2
+        MOUNT_OUTPUT=$($BINARY_CMD mount --compact 2>&1)
+
+        # Parse JSON to show results
+        if echo "$MOUNT_OUTPUT" | grep -q '"successCount"'; then
+            SUCCESS=$(echo "$MOUNT_OUTPUT" | grep -o '"successCount":[0-9]*' | grep -o '[0-9]*')
+            TOTAL=$(echo "$MOUNT_OUTPUT" | grep -o '"totalCount":[0-9]*' | grep -o '[0-9]*')
+            echo -e "${GREEN}  Mounted $SUCCESS/$TOTAL volumes${NC}" >&2
+        fi
     fi
 
     # Wait for volumes to stabilize
