@@ -169,6 +169,36 @@ fi
 "$BINARY_PATH" list --compact
 echo ""
 
+# Check if we need sudo for ejection (Thunderbolt/external drives often require it)
+echo -e "${BLUE}Testing permissions...${NC}"
+TEST_OUTPUT=$("$BINARY_PATH" eject --compact 2>&1)
+NEEDS_SUDO=false
+
+if echo "$TEST_OUTPUT" | grep -q "Not privileged"; then
+    echo "  ⚠️  Administrator privileges required for these drives"
+    echo "  Thunderbolt/external drives often need sudo to eject"
+    echo ""
+    NEEDS_SUDO=true
+    BINARY_CMD="sudo $BINARY_PATH"
+    echo "  Will use: sudo for all ejection commands"
+else
+    BINARY_CMD="$BINARY_PATH"
+    echo "  ✅ No special privileges needed"
+fi
+echo ""
+
+# Remount volumes after permission test
+echo -e "${BLUE}Remounting volumes after permission test...${NC}"
+if [[ ${#DMG_PATHS[@]} -gt 0 ]]; then
+    for dmg in "${DMG_PATHS[@]}"; do
+        hdiutil attach "$dmg" >/dev/null 2>&1 || true
+    done
+else
+    echo "  Please remount your drives manually, then press Enter..."
+    read -r
+fi
+echo ""
+
 # Function to remount all volumes
 remount_volumes() {
     if [[ ${#DMG_PATHS[@]} -gt 0 ]]; then
@@ -286,7 +316,7 @@ echo "TEST 1: Native DiskArbitration API"
 echo "========================================="
 NATIVE_AVG=$(benchmark_method \
     "Native API (DADiskUnmount)" \
-    "$BINARY_PATH eject --compact" \
+    "$BINARY_CMD eject --compact" \
     "${RESULTS_BASE}_native.txt")
 
 echo "Remounting volumes for next test..."
@@ -299,7 +329,7 @@ echo "TEST 2: diskutil subprocess"
 echo "========================================="
 DISKUTIL_AVG=$(benchmark_method \
     "diskutil subprocess" \
-    "$BINARY_PATH eject --use-diskutil --compact" \
+    "$BINARY_CMD eject --use-diskutil --compact" \
     "${RESULTS_BASE}_diskutil.txt")
 
 # Benchmark 3: Jettison (if available)
