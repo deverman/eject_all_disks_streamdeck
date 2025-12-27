@@ -59,6 +59,21 @@ struct BenchmarkOutput: Codable, Sendable {
     let speedup: Double?
 }
 
+struct MountResult: Codable, Sendable {
+    let device: String
+    let mountPoint: String?
+    let success: Bool
+    let error: String?
+}
+
+struct MountOutput: Codable, Sendable {
+    let totalCount: Int
+    let successCount: Int
+    let failedCount: Int
+    let results: [MountResult]
+    let totalDuration: Double
+}
+
 // MARK: - Volume Discovery (Legacy for JSON compatibility)
 
 /// Get list of ejectable volumes using legacy format for JSON output
@@ -75,6 +90,196 @@ func getEjectableVolumesLegacy() async -> [VolumeInfoOutput] {
             isRemovable: volume.info.isRemovable
         )
     }
+}
+
+// MARK: - Mount Operations
+
+/// Get disk info using diskutil (for parallel execution)
+nonisolated func getDiskInfo(deviceIdentifier: String) -> [String: Any]? {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
+    process.arguments = ["info", "-plist", deviceIdentifier]
+
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = Pipe()
+
+    do {
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else { return nil }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+    } catch {
+        return nil
+    }
+}
+
+/// Discover unmounted external volumes using diskutil (optimized for speed)
+func getUnmountedExternalVolumes() async -> [String] {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
+    process.arguments = ["list", "-plist"]
+
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = Pipe()
+
+    do {
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else { return [] }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let allDisks = plist["AllDisksAndPartitions"] as? [[String: Any]] else {
+            return []
+        }
+
+        // Collect all whole disk device identifiers for parallel checking
+        let diskIdentifiers = allDisks.compactMap { $0["DeviceIdentifier"] as? String }
+
+        // Check all disks in parallel to find external ones
+        let externalDisks = await withTaskGroup(of: (String, [String: Any]?, [[String: Any]]?).self, returning: [(String, [[String: Any]])].self) { group in
+            for (identifier, diskInfo) in zip(diskIdentifiers, allDisks) {
+                group.addTask {
+                    let info = getDiskInfo(deviceIdentifier: identifier)
+                    let partitions = diskInfo["Partitions"] as? [[String: Any]]
+                    return (identifier, info, partitions)
+                }
+            }
+
+            var results: [(String, [[String: Any]])] = []
+            for await (identifier, info, partitions) in group {
+                guard let info = info,
+                      let partitions = partitions else { continue }
+
+                // Check if this is an external disk
+                let isInternal = info["Internal"] as? Bool ?? true
+                if !isInternal {
+                    results.append((identifier, partitions))
+                }
+            }
+            return results
+        }
+
+        // Now collect unmounted partitions from external disks
+        var unmountedDevices: [String] = []
+        for (_, partitions) in externalDisks {
+            for partition in partitions {
+                guard let partDeviceId = partition["DeviceIdentifier"] as? String else { continue }
+                let mountPoint = partition["MountPoint"] as? String
+
+                // If no mount point and has a volume name, it's unmounted but mountable
+                if mountPoint == nil, partition["VolumeName"] != nil {
+                    unmountedDevices.append(partDeviceId)
+                }
+            }
+        }
+
+        return unmountedDevices
+    } catch {
+        return []
+    }
+}
+
+/// Mount a single volume using diskutil
+nonisolated func mountVolumeWithDiskutil(device: String) -> (success: Bool, mountPoint: String?, error: String?) {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
+    process.arguments = ["mount", device]
+
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = pipe
+
+    do {
+        try process.run()
+        process.waitUntilExit()
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: data, encoding: .utf8) ?? ""
+
+        if process.terminationStatus == 0 {
+            // Parse mount point from output (format: "Volume XYZ on /dev/diskXsY mounted")
+            // or try to get it from diskutil info
+            let infoProcess = Process()
+            infoProcess.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
+            infoProcess.arguments = ["info", "-plist", device]
+
+            let infoPipe = Pipe()
+            infoProcess.standardOutput = infoPipe
+            infoProcess.standardError = Pipe()
+
+            try? infoProcess.run()
+            infoProcess.waitUntilExit()
+
+            var mountPoint: String? = nil
+            if infoProcess.terminationStatus == 0 {
+                let infoData = infoPipe.fileHandleForReading.readDataToEndOfFile()
+                if let infoPlist = try? PropertyListSerialization.propertyList(from: infoData, format: nil) as? [String: Any] {
+                    mountPoint = infoPlist["MountPoint"] as? String
+                }
+            }
+
+            return (true, mountPoint, nil)
+        } else {
+            let errorMsg = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (false, nil, errorMsg)
+        }
+    } catch {
+        return (false, nil, error.localizedDescription)
+    }
+}
+
+/// Mount all unmounted external volumes
+func mountAllExternalVolumes() async -> MountOutput {
+    let startTime = Date()
+    let devices = await getUnmountedExternalVolumes()
+
+    guard !devices.isEmpty else {
+        return MountOutput(
+            totalCount: 0,
+            successCount: 0,
+            failedCount: 0,
+            results: [],
+            totalDuration: 0
+        )
+    }
+
+    let results = await withTaskGroup(of: MountResult.self, returning: [MountResult].self) { group in
+        for device in devices {
+            group.addTask {
+                let (success, mountPoint, error) = mountVolumeWithDiskutil(device: device)
+                return MountResult(
+                    device: device,
+                    mountPoint: mountPoint,
+                    success: success,
+                    error: error
+                )
+            }
+        }
+
+        var collectedResults: [MountResult] = []
+        for await result in group {
+            collectedResults.append(result)
+        }
+        return collectedResults
+    }
+
+    let totalDuration = Date().timeIntervalSince(startTime)
+    let successCount = results.filter { $0.success }.count
+
+    return MountOutput(
+        totalCount: devices.count,
+        successCount: successCount,
+        failedCount: devices.count - successCount,
+        results: results,
+        totalDuration: totalDuration
+    )
 }
 
 // MARK: - Process Discovery (Native libproc implementation)
@@ -403,12 +608,12 @@ struct EjectDisks: AsyncParsableCommand {
         commandName: "eject-disks",
         abstract: "Fast disk ejection using native DiskArbitration APIs",
         discussion: """
-            A high-performance tool for ejecting external disks on macOS.
+            A high-performance tool for ejecting and mounting external disks on macOS.
             Uses DADiskUnmount for 10x faster ejection vs diskutil subprocess.
             Includes diagnostics to identify processes blocking disk ejection.
             """,
-        version: "3.0.0",
-        subcommands: [List.self, Count.self, Eject.self, Diagnose.self, Benchmark.self],
+        version: "3.1.0",
+        subcommands: [List.self, Count.self, Eject.self, Mount.self, Diagnose.self, Benchmark.self],
         defaultSubcommand: List.self
     )
 }
@@ -471,6 +676,25 @@ extension EjectDisks {
             } else {
                 output = await ejectAllVolumesNative(force: force, verbose: verbose)
             }
+            printJSON(output, compact: compact)
+        }
+    }
+
+    struct Mount: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Mount all unmounted external volumes",
+            discussion: """
+                Discovers and mounts all unmounted external volumes in parallel.
+                Useful for remounting drives after ejection (e.g., in benchmarks).
+                Returns a JSON object with results for each mounted volume.
+                """
+        )
+
+        @Flag(name: .shortAndLong, help: "Output in compact JSON format")
+        var compact = false
+
+        func run() async {
+            let output = await mountAllExternalVolumes()
             printJSON(output, compact: compact)
         }
     }
