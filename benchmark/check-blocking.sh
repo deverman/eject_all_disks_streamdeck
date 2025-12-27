@@ -40,12 +40,17 @@ echo "Checking $COUNT volume(s) for processes with open files..."
 echo ""
 
 # Parse volume paths and check each one
-echo "$VOLUMES" | python3 << 'PYTHON_SCRIPT'
+# Use temp file to avoid heredoc stdin conflict
+TEMP_JSON=$(mktemp)
+echo "$VOLUMES" > "$TEMP_JSON"
+
+python3 << PYTHON_SCRIPT
 import sys
 import json
 import subprocess
 
-data = json.load(sys.stdin)
+with open('$TEMP_JSON', 'r') as f:
+    data = json.load(f)
 
 for vol in data['volumes']:
     name = vol['name']
@@ -77,6 +82,9 @@ for vol in data['volumes']:
     print()
 
 PYTHON_SCRIPT
+
+# Clean up temp file
+rm -f "$TEMP_JSON"
 
 echo ""
 echo "===================================="
