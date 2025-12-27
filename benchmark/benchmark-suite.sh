@@ -49,6 +49,9 @@ CREATE_DMGS=0
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BINARY_PATH="${SCRIPT_DIR}/../org.deverman.ejectalldisks.sdPlugin/bin/eject-disks"
 
+# Export BINARY_PATH so it's available in subshells (needed for Jettison polling)
+export BINARY_PATH
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -345,7 +348,8 @@ if [[ "$HAS_JETTISON" == true ]]; then
     # Note: Jettison doesn't have a command-line interface
     # We trigger via AppleScript, then poll until volumes are gone
     # This ensures we measure the full ejection time
-    JETTISON_CMD="osascript -e 'tell application \"Jettison\" to eject all disks' && while diskutil list | grep -q 'external, physical'; do sleep 0.1; done"
+    # Using our binary's count to detect completion (more reliable than grepping diskutil output)
+    JETTISON_CMD="osascript -e 'tell application \"Jettison\" to eject all disks' && while [[ \$(\"\$BINARY_PATH\" count) -gt 0 ]]; do sleep 0.1; done"
 
     JETTISON_AVG=$(benchmark_method \
         "Jettison (via AppleScript)" \
