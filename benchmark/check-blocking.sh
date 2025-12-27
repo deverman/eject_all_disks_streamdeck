@@ -12,13 +12,19 @@ echo "===================================="
 echo ""
 
 # Get volume list
-VOLUMES=$("$BINARY_PATH" list --compact 2>&1)
+RAW_OUTPUT=$("$BINARY_PATH" list --compact 2>&1)
+
+# Filter out debug lines to get clean JSON
+VOLUMES=$(echo "$RAW_OUTPUT" | grep -v "SwiftDiskArbitration" | grep -v "DiskSession")
 
 # Check if we got valid JSON
 if ! echo "$VOLUMES" | python3 -c "import sys, json; json.load(sys.stdin)" 2>/dev/null; then
     echo "❌ Failed to get volume list from binary"
     echo ""
-    echo "Output was:"
+    echo "Raw output was:"
+    echo "$RAW_OUTPUT"
+    echo ""
+    echo "Filtered JSON:"
     echo "$VOLUMES"
     exit 1
 fi
