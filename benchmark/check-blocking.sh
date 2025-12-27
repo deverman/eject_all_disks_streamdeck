@@ -12,14 +12,25 @@ echo "===================================="
 echo ""
 
 # Get volume list
-VOLUMES=$("$BINARY_PATH" list --compact 2>/dev/null)
+VOLUMES=$("$BINARY_PATH" list --compact 2>&1)
 
-if [[ -z "$VOLUMES" ]]; then
-    echo "No volumes found"
+# Check if we got valid JSON
+if ! echo "$VOLUMES" | python3 -c "import sys, json; json.load(sys.stdin)" 2>/dev/null; then
+    echo "❌ Failed to get volume list from binary"
+    echo ""
+    echo "Output was:"
+    echo "$VOLUMES"
     exit 1
 fi
 
-echo "Checking each volume for processes with open files..."
+# Check if we have any volumes
+COUNT=$(echo "$VOLUMES" | python3 -c "import sys, json; print(json.load(sys.stdin)['count'])")
+if [[ "$COUNT" == "0" ]]; then
+    echo "No volumes found to check"
+    exit 0
+fi
+
+echo "Checking $COUNT volume(s) for processes with open files..."
 echo ""
 
 # Parse volume paths and check each one

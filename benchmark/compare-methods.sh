@@ -28,17 +28,24 @@ echo ""
 "$BINARY_PATH" list --compact | python3 -m json.tool 2>/dev/null || "$BINARY_PATH" list --compact
 echo ""
 
-# Test if sudo needed
-TEST_OUTPUT=$("$BINARY_PATH" eject --compact 2>&1)
-USE_SUDO=""
-if echo "$TEST_OUTPUT" | grep -q "Not privileged"; then
-    USE_SUDO="sudo"
-    echo "⚠️  Requires sudo for these drives"
-
-    # Remount drives
-    echo "Please remount your drives, then press Enter..."
-    read -r
+# Check if we're already running as root
+if [[ $EUID -eq 0 ]]; then
+    echo "ℹ️  Running as root (sudo)"
+    USE_SUDO=""
     echo ""
+else
+    # Test if sudo needed
+    TEST_OUTPUT=$("$BINARY_PATH" eject --compact 2>&1)
+    USE_SUDO=""
+    if echo "$TEST_OUTPUT" | grep -q "Not privileged"; then
+        USE_SUDO="sudo"
+        echo "⚠️  Requires sudo for these drives"
+
+        # Remount drives
+        echo "Please remount your drives, then press Enter..."
+        read -r
+        echo ""
+    fi
 fi
 
 # Test 1: Native API
@@ -52,13 +59,22 @@ OUTPUT=$($USE_SUDO "$BINARY_PATH" eject --compact 2>&1)
 END=$(date +%s.%N)
 NATIVE_TIME=$(echo "$END - $START" | bc)
 
-echo "$OUTPUT" | grep "SwiftDiskArbitration"
+# Show debug output
+echo "$OUTPUT" | grep "SwiftDiskArbitration" || echo "(No debug output)"
 echo ""
-if echo "$OUTPUT" | grep -q '"successCount"'; then
-    SUCCESS=$(echo "$OUTPUT" | grep -o '"successCount":[0-9]*' | grep -o '[0-9]*')
-    TOTAL=$(echo "$OUTPUT" | grep -o '"totalCount":[0-9]*' | grep -o '[0-9]*')
-    DURATION=$(echo "$OUTPUT" | grep -o '"totalDuration":[0-9.]*' | grep -o '[0-9.]*')
+
+# Parse JSON (filter out debug lines first)
+JSON_OUTPUT=$(echo "$OUTPUT" | grep -v "SwiftDiskArbitration" | grep -v "DiskSession")
+
+if echo "$JSON_OUTPUT" | grep -q '"successCount"'; then
+    SUCCESS=$(echo "$JSON_OUTPUT" | grep -o '"successCount":[0-9]*' | grep -o '[0-9]*')
+    TOTAL=$(echo "$JSON_OUTPUT" | grep -o '"totalCount":[0-9]*' | grep -o '[0-9]*')
+    DURATION=$(echo "$JSON_OUTPUT" | grep -o '"totalDuration":[0-9.]*' | grep -o '[0-9.]*')
     echo "Result: $SUCCESS/$TOTAL ejected in ${DURATION}s"
+else
+    echo "⚠️  Could not parse JSON output"
+    echo "Raw output:"
+    echo "$OUTPUT"
 fi
 echo ""
 
@@ -78,11 +94,22 @@ OUTPUT=$($USE_SUDO "$BINARY_PATH" eject --use-diskutil --compact 2>&1)
 END=$(date +%s.%N)
 DISKUTIL_TIME=$(echo "$END - $START" | bc)
 
-if echo "$OUTPUT" | grep -q '"successCount"'; then
-    SUCCESS=$(echo "$OUTPUT" | grep -o '"successCount":[0-9]*' | grep -o '[0-9]*')
-    TOTAL=$(echo "$OUTPUT" | grep -o '"totalCount":[0-9]*' | grep -o '[0-9]*')
-    DURATION=$(echo "$OUTPUT" | grep -o '"totalDuration":[0-9.]*' | grep -o '[0-9.]*')
+# Show debug output
+echo "$OUTPUT" | grep "SwiftDiskArbitration" || echo "(No debug output)"
+echo ""
+
+# Parse JSON (filter out debug lines first)
+JSON_OUTPUT=$(echo "$OUTPUT" | grep -v "SwiftDiskArbitration" | grep -v "DiskSession")
+
+if echo "$JSON_OUTPUT" | grep -q '"successCount"'; then
+    SUCCESS=$(echo "$JSON_OUTPUT" | grep -o '"successCount":[0-9]*' | grep -o '[0-9]*')
+    TOTAL=$(echo "$JSON_OUTPUT" | grep -o '"totalCount":[0-9]*' | grep -o '[0-9]*')
+    DURATION=$(echo "$JSON_OUTPUT" | grep -o '"totalDuration":[0-9.]*' | grep -o '[0-9.]*')
     echo "Result: $SUCCESS/$TOTAL ejected in ${DURATION}s"
+else
+    echo "⚠️  Could not parse JSON output"
+    echo "Raw output:"
+    echo "$OUTPUT"
 fi
 echo ""
 
