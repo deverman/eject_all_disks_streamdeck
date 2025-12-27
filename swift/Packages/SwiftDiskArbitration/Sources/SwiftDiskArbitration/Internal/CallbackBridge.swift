@@ -65,7 +65,7 @@ internal final class EjectCallbackContext {
 
 /// Enable debug output for troubleshooting
 /// Set to true to see detailed callback information
-internal let debugCallbacks = false  // Set to true for debugging
+internal let debugCallbacks = true  // Set to true for debugging
 
 /// C callback for DADiskUnmount
 /// This function has @convention(c) semantics and cannot capture Swift context directly
@@ -88,10 +88,10 @@ internal let unmountCallback: DADiskUnmountCallback = { disk, dissenter, context
       let status = DADissenterGetStatus(dissenter)
       let statusStr = DADissenterGetStatusString(dissenter) as String? ?? "nil"
       print(
-        "[SwiftDiskArbitration] unmountCallback: dissenter status=0x\(String(status, radix: 16)), message=\(statusStr)"
+        "[SwiftDiskArbitration] unmountCallback: dissenter status=0x\(String(status, radix: 16)), message=\(statusStr), duration=\(String(format: "%.4f", duration))s"
       )
     } else {
-      print("[SwiftDiskArbitration] unmountCallback: success (no dissenter)")
+      print("[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=\(String(format: "%.4f", duration))s")
     }
   }
 
@@ -124,10 +124,10 @@ internal let ejectCallback: DADiskEjectCallback = { disk, dissenter, context in
       let status = DADissenterGetStatus(dissenter)
       let statusStr = DADissenterGetStatusString(dissenter) as String? ?? "nil"
       print(
-        "[SwiftDiskArbitration] ejectCallback: dissenter status=0x\(String(status, radix: 16)), message=\(statusStr)"
+        "[SwiftDiskArbitration] ejectCallback: dissenter status=0x\(String(status, radix: 16)), message=\(statusStr), duration=\(String(format: "%.4f", duration))s"
       )
     } else {
-      print("[SwiftDiskArbitration] ejectCallback: success (no dissenter)")
+      print("[SwiftDiskArbitration] ejectCallback: success (no dissenter), duration=\(String(format: "%.4f", duration))s")
     }
   }
 
@@ -234,25 +234,33 @@ nonisolated internal func unmountAndEjectAsync(
       unmountOptions |= kDADiskUnmountOptionForce
     }
 
+    let unmountStart = Date()
     let unmountResult = await unmountDiskAsync(
       wholeDisk,
       options: DADiskUnmountOptions(unmountOptions)
     )
+    let unmountElapsed = Date().timeIntervalSince(unmountStart)
 
     guard unmountResult.success else {
       if debugCallbacks {
-        print("[SwiftDiskArbitration] Unmount failed: \(unmountResult.error?.description ?? "unknown")")
+        print("[SwiftDiskArbitration] Unmount failed: \(unmountResult.error?.description ?? "unknown"), elapsed=\(String(format: "%.4f", unmountElapsed))s")
       }
       return unmountResult
     }
 
     if debugCallbacks {
-      print("[SwiftDiskArbitration] Step 2: Ejecting whole disk \(wholeDiskBSD)")
+      print("[SwiftDiskArbitration] Step 2: Ejecting whole disk \(wholeDiskBSD) (unmount took \(String(format: "%.4f", unmountElapsed))s)")
     }
 
     // Step 2: Eject the physical device
+    let ejectStart = Date()
     let ejectResult = await ejectDiskAsync(wholeDisk)
+    let ejectElapsed = Date().timeIntervalSince(ejectStart)
     let totalDuration = Date().timeIntervalSince(startTime)
+
+    if debugCallbacks {
+      print("[SwiftDiskArbitration] Eject completed: eject took \(String(format: "%.4f", ejectElapsed))s, total=\(String(format: "%.4f", totalDuration))s")
+    }
 
     if ejectResult.success {
       return DiskOperationResult(success: true, error: nil, duration: totalDuration)
