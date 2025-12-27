@@ -8,9 +8,38 @@
 #   --skip-jettison   Skip Jettison benchmarks
 #   --output FILE     Save results to JSON file
 #   --create-dmgs N   Create N test disk images for consistent testing
+#   --help            Show this help message
 #
 
 set -e
+
+# Show usage and exit
+show_usage() {
+    cat << EOF
+Usage: $0 [options]
+
+Options:
+  --runs N          Number of test runs per method (default: 5)
+  --skip-jettison   Skip Jettison benchmarks
+  --output FILE     Save results to JSON file (required)
+  --create-dmgs N   Create N test disk images for consistent testing
+  --help            Show this help message
+
+Examples:
+  # Quick test with disk images
+  $0 --create-dmgs 3 --runs 5 --output quick.json
+
+  # Production benchmark
+  $0 --create-dmgs 5 --runs 10 --output production.json
+
+  # Test with real USB drives (must remount manually between tests)
+  $0 --runs 5 --output real-usb.json
+
+  # Skip Jettison if not installed
+  $0 --create-dmgs 3 --runs 5 --skip-jettison --output results.json
+EOF
+    exit "${1:-0}"
+}
 
 # Configuration
 RUNS=5
@@ -30,7 +59,15 @@ NC='\033[0m' # No Color
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --help|-h)
+            show_usage 0
+            ;;
         --runs)
+            if [[ -z "$2" || "$2" == --* ]]; then
+                echo "Error: --runs requires a number argument"
+                echo ""
+                show_usage 1
+            fi
             RUNS="$2"
             shift 2
             ;;
@@ -39,19 +76,37 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --output)
+            if [[ -z "$2" || "$2" == --* ]]; then
+                echo "Error: --output requires a filename argument"
+                echo ""
+                show_usage 1
+            fi
             OUTPUT_FILE="$2"
             shift 2
             ;;
         --create-dmgs)
+            if [[ -z "$2" || "$2" == --* ]]; then
+                echo "Error: --create-dmgs requires a number argument"
+                echo ""
+                show_usage 1
+            fi
             CREATE_DMGS="$2"
             shift 2
             ;;
         *)
-            echo "Unknown option: $1"
-            exit 1
+            echo "Error: Unknown option: $1"
+            echo ""
+            show_usage 1
             ;;
     esac
 done
+
+# Validate required arguments
+if [[ -z "$OUTPUT_FILE" ]]; then
+    echo "Error: --output FILE is required"
+    echo ""
+    show_usage 1
+fi
 
 # Check if eject-disks binary exists
 if [[ ! -f "$BINARY_PATH" ]]; then
