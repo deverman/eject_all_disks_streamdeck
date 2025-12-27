@@ -194,6 +194,7 @@ benchmark_method() {
 
     # Send all diagnostic output to stderr so only the number is captured
     echo -e "${GREEN}Benchmarking: $method_name${NC}" >&2
+    echo "  Command: $method_cmd" >&2
     echo "  Running $RUNS tests..." >&2
 
     local times=()
@@ -206,7 +207,7 @@ benchmark_method() {
         # Run the ejection command and capture output
         local start_time=$(date +%s.%N)
         local output
-        output=$(eval "$method_cmd" 2>&1)
+        output=$(bash -c "$method_cmd" 2>&1)
         local end_time=$(date +%s.%N)
 
         # Calculate elapsed time BEFORE remounting (don't include remount time)
@@ -285,7 +286,7 @@ echo "TEST 1: Native DiskArbitration API"
 echo "========================================="
 NATIVE_AVG=$(benchmark_method \
     "Native API (DADiskUnmount)" \
-    "\"$BINARY_PATH\" eject --compact" \
+    "$BINARY_PATH eject --compact" \
     "${RESULTS_BASE}_native.txt")
 
 echo "Remounting volumes for next test..."
@@ -298,7 +299,7 @@ echo "TEST 2: diskutil subprocess"
 echo "========================================="
 DISKUTIL_AVG=$(benchmark_method \
     "diskutil subprocess" \
-    "\"$BINARY_PATH\" eject --use-diskutil --compact" \
+    "$BINARY_PATH eject --use-diskutil --compact" \
     "${RESULTS_BASE}_diskutil.txt")
 
 # Benchmark 3: Jettison (if available)
@@ -312,10 +313,13 @@ if [[ "$HAS_JETTISON" == true ]]; then
     echo "========================================="
 
     # Note: Jettison doesn't have a command-line interface
-    # We'll need to measure it differently - via AppleScript
+    # We trigger via AppleScript, then poll until volumes are gone
+    # This ensures we measure the full ejection time
+    JETTISON_CMD="osascript -e 'tell application \"Jettison\" to eject all disks' && while diskutil list | grep -q 'external, physical'; do sleep 0.1; done"
+
     JETTISON_AVG=$(benchmark_method \
         "Jettison (via AppleScript)" \
-        "osascript -e 'tell application \"Jettison\" to eject all disks'" \
+        "$JETTISON_CMD" \
         "${RESULTS_BASE}_jettison.txt")
 fi
 

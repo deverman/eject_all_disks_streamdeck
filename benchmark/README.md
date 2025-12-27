@@ -4,10 +4,25 @@ Comprehensive benchmarking tools to measure and compare disk ejection performanc
 
 ## Quick Start
 
-### Automated Benchmark
+### Step 1: Verify Binary Works
+
+Before running benchmarks, test that the Swift binary is working correctly:
 
 ```bash
 cd benchmark
+chmod +x test-binary.sh
+./test-binary.sh
+```
+
+This will verify:
+- Binary exists and is executable
+- Can count and list volumes
+- JSON output format is correct
+- Basic ejection works
+
+### Step 2: Run Automated Benchmark
+
+```bash
 chmod +x benchmark-suite.sh
 
 # Run with test disk images (safest for repeated testing)
@@ -145,12 +160,57 @@ Re-enable Spotlight after: `sudo mdutil -a -i on`
 
 ## Troubleshooting
 
+### "Binary not found" or Benchmark Times Are Wrong
+
+**Symptoms:**
+- Error: `eject-disks binary not found`
+- Native API taking 10+ seconds (should be <1 second)
+- Suspiciously fast or slow times
+
+**Solution:**
+1. First, run the test script to verify the binary:
+   ```bash
+   ./test-binary.sh
+   ```
+
+2. If the binary doesn't exist, build it:
+   ```bash
+   cd ../swift
+   chmod +x build.sh
+   ./build.sh
+   ```
+
+3. Verify the binary is in the correct location:
+   ```bash
+   ls -lh ../org.deverman.ejectalldisks.sdPlugin/bin/eject-disks
+   ```
+
+4. Test it manually:
+   ```bash
+   ../org.deverman.ejectalldisks.sdPlugin/bin/eject-disks count
+   ../org.deverman.ejectalldisks.sdPlugin/bin/eject-disks list --compact
+   ```
+
+### Jettison Benchmark Too Fast (<0.1 seconds)
+
+**Symptoms:**
+- Jettison showing unrealistic times like 0.05 seconds
+- Volumes not actually ejected after Jettison test
+
+**Cause:** The recent fix ensures Jettison waits for volumes to actually eject. If you're seeing fast times, the polling might not be working.
+
+**Solution:** The benchmark script now includes a polling loop. Make sure you're using the latest version:
+```bash
+grep -A 2 "JETTISON_CMD" benchmark-suite.sh
+# Should show: osascript ... && while diskutil list | grep -q 'external, physical'; do sleep 0.1; done
+```
+
 ### "No ejectable volumes found"
 
 Make sure you have external disks mounted, or use `--create-dmgs`:
 
 ```bash
-./benchmark-suite.sh --create-dmgs 3
+./benchmark-suite.sh --create-dmgs 3 --runs 5 --output test.json
 ```
 
 ### "Jettison not found"
@@ -162,10 +222,10 @@ Jettison is optional. Either:
 
 ### Permission Errors
 
-Make sure the script is executable:
+Make sure the scripts are executable:
 
 ```bash
-chmod +x benchmark-suite.sh
+chmod +x benchmark-suite.sh test-binary.sh
 ```
 
 ### Incomplete Remounting
@@ -174,6 +234,18 @@ If using real disks, you must manually remount between tests. The script will pa
 
 1. Reconnect USB drives (or use Disk Utility to remount)
 2. Press Enter to continue
+
+### Debug Mode
+
+To see exactly what commands are being run, the benchmark script now shows the command before executing:
+
+```
+Benchmarking: Native API (DADiskUnmount)
+  Command: /path/to/eject-disks eject --compact
+  Running 5 tests...
+```
+
+Check this output to verify the correct command is being executed.
 
 ## Output Files
 
