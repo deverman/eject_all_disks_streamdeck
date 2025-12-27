@@ -142,33 +142,34 @@ func getUnmountedExternalVolumes() async -> [String] {
         // Collect all whole disk device identifiers for parallel checking
         let diskIdentifiers = allDisks.compactMap { $0["DeviceIdentifier"] as? String }
 
-        // Check all disks in parallel to find external ones
-        let externalDisks = await withTaskGroup(of: (String, [String: Any]?, [[String: Any]]?).self, returning: [(String, [[String: Any]])].self) { group in
-            for (identifier, diskInfo) in zip(diskIdentifiers, allDisks) {
+        // Check all disks in parallel to find which are external (Sendable-safe)
+        let externalDiskIds = await withTaskGroup(of: (String, Bool).self, returning: Set<String>.self) { group in
+            for identifier in diskIdentifiers {
                 group.addTask {
                     let info = getDiskInfo(deviceIdentifier: identifier)
-                    let partitions = diskInfo["Partitions"] as? [[String: Any]]
-                    return (identifier, info, partitions)
+                    let isInternal = info?["Internal"] as? Bool ?? true
+                    return (identifier, !isInternal)
                 }
             }
 
-            var results: [(String, [[String: Any]])] = []
-            for await (identifier, info, partitions) in group {
-                guard let info = info,
-                      let partitions = partitions else { continue }
-
-                // Check if this is an external disk
-                let isInternal = info["Internal"] as? Bool ?? true
-                if !isInternal {
-                    results.append((identifier, partitions))
+            var externalIds = Set<String>()
+            for await (identifier, isExternal) in group {
+                if isExternal {
+                    externalIds.insert(identifier)
                 }
             }
-            return results
+            return externalIds
         }
 
         // Now collect unmounted partitions from external disks
         var unmountedDevices: [String] = []
-        for (_, partitions) in externalDisks {
+        for diskInfo in allDisks {
+            guard let deviceId = diskInfo["DeviceIdentifier"] as? String,
+                  externalDiskIds.contains(deviceId),
+                  let partitions = diskInfo["Partitions"] as? [[String: Any]] else {
+                continue
+            }
+
             for partition in partitions {
                 guard let partDeviceId = partition["DeviceIdentifier"] as? String else { continue }
                 let mountPoint = partition["MountPoint"] as? String
