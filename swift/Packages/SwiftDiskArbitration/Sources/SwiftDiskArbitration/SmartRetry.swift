@@ -101,7 +101,7 @@ public actor SmartRetryHandler {
     }
 
     /// Execute an operation with smart retry logic
-    public func execute<T>(
+    public func execute(
         operation: @Sendable () async -> (success: Bool, error: DiskError?),
         volumePath: String,
         volumeName: String
@@ -176,8 +176,6 @@ public actor SmartRetryHandler {
 
     /// Attempt to kill processes blocking the volume
     private nonisolated func tryKillBlockingProcesses(path: String) async -> [String] {
-        var killed: [String] = []
-
         // This is a placeholder - actual implementation would use libproc APIs
         // to find processes with open files on the path, then kill killable ones
 
@@ -188,7 +186,7 @@ public actor SmartRetryHandler {
         // 4. Wait briefly for processes to exit
         // 5. Return list of killed process names
 
-        return killed
+        return []
     }
 
     /// Get information about processes blocking the volume
@@ -220,82 +218,24 @@ extension DiskSession {
         )
     }
 
+    // NOTE: ejectAllWithRetry is disabled until full implementation
+    // This function is a prototype and requires access to private DiskSession methods
+    // Will be implemented in Phase 2 of the Smart Blocker Termination feature
+
+    /*
     /// Eject all volumes with smart retry on individual failures
     public func ejectAllWithRetry(
         _ volumes: [Volume],
         options: EjectOptions = .default,
         retryOptions: RetryOptions = .default
     ) async -> BatchEjectResultWithDiagnostics {
-        let startTime = Date()
-
-        guard !volumes.isEmpty else {
-            return BatchEjectResultWithDiagnostics(
-                totalCount: 0,
-                successCount: 0,
-                failedCount: 0,
-                results: [],
-                totalDuration: 0,
-                diagnostics: []
-            )
-        }
-
-        // Group volumes by physical device (same as regular eject)
-        let deviceGroups = groupVolumesByPhysicalDevice(volumes)
-
-        // Process each device with retry logic
-        let results = await withTaskGroup(
-            of: (SingleEjectResult, DiagnosticMessage?).self,
-            returning: [(SingleEjectResult, DiagnosticMessage?)].self
-        ) { group in
-            for deviceGroup in deviceGroups {
-                group.addTask {
-                    // Try to eject this device with retry
-                    let handler = SmartRetryHandler(retryOptions: retryOptions)
-
-                    // For simplicity, we'll retry the whole device group
-                    let retryResult = await handler.execute(
-                        operation: {
-                            // This would call the actual unmount operation
-                            // Placeholder for now
-                            return (success: false, error: .busy(message: "Device busy"))
-                        },
-                        volumePath: deviceGroup.volumes.first?.info.path ?? "",
-                        volumeName: deviceGroup.volumes.first?.info.name ?? ""
-                    )
-
-                    // Create results for all volumes in this group
-                    let result = SingleEjectResult(
-                        volumeName: deviceGroup.volumes.first?.info.name ?? "",
-                        volumePath: deviceGroup.volumes.first?.info.path ?? "",
-                        success: retryResult.success,
-                        errorMessage: retryResult.error?.description,
-                        duration: retryResult.duration
-                    )
-
-                    return (result, retryResult.diagnostic)
-                }
-            }
-
-            var collected: [(SingleEjectResult, DiagnosticMessage?)] = []
-            for await item in group {
-                collected.append(item)
-            }
-            return collected
-        }
-
-        let totalDuration = Date().timeIntervalSince(startTime)
-        let successCount = results.filter { $0.0.success }.count
-        let diagnostics = results.compactMap { $0.1 }
-
-        return BatchEjectResultWithDiagnostics(
-            totalCount: volumes.count,
-            successCount: successCount,
-            failedCount: volumes.count - successCount,
-            results: results.map { $0.0 },
-            totalDuration: totalDuration,
-            diagnostics: diagnostics
-        )
+        // This is a prototype - implementation requires:
+        // 1. Access to groupVolumesByPhysicalDevice (currently private)
+        // 2. Integration with actual eject operations
+        // 3. Full blocker detection and termination logic
+        fatalError("ejectAllWithRetry is not yet implemented")
     }
+    */
 }
 
 /// Extended batch result with diagnostic information
