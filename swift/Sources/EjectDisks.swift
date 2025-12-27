@@ -173,9 +173,18 @@ func getUnmountedExternalVolumes() async -> [String] {
             for partition in partitions {
                 guard let partDeviceId = partition["DeviceIdentifier"] as? String else { continue }
                 let mountPoint = partition["MountPoint"] as? String
+                let volumeName = partition["VolumeName"] as? String
+                let content = partition["Content"] as? String
 
-                // If no mount point and has a volume name, it's unmounted but mountable
-                if mountPoint == nil, partition["VolumeName"] != nil {
+                // Skip system partitions (EFI, Recovery, etc.)
+                let isSystemPartition = content == "EFI" ||
+                                       content == "Apple_Boot" ||
+                                       content == "Apple_APFS_Recovery" ||
+                                       volumeName == "EFI" ||
+                                       volumeName == "Recovery"
+
+                // Only include unmounted user data volumes
+                if mountPoint == nil, volumeName != nil, !isSystemPartition {
                     unmountedDevices.append(partDeviceId)
                 }
             }
