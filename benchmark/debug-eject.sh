@@ -75,6 +75,32 @@ if echo "$OUTPUT" | grep -q '"totalCount"'; then
     echo "  Failed: $FAILED"
     echo "  JSON Duration: ${JSON_DURATION}s"
     echo ""
+
+    # Check for permission errors
+    if echo "$OUTPUT" | grep -q "Not privileged"; then
+        echo "⚠️  PERMISSION ERROR DETECTED"
+        echo ""
+        echo "The volumes require administrator privileges to eject."
+        echo ""
+        echo "Solutions:"
+        echo "  1. Run with sudo: sudo $0"
+        echo "  2. Test with real USB drives (they usually don't need sudo)"
+        echo "  3. Install privileged helper:"
+        echo "     cd ../org.deverman.ejectalldisks.sdPlugin/bin"
+        echo "     sudo ./install-eject-privileges.sh"
+        echo ""
+    fi
+
+    # Show timing analysis
+    if (( $(echo "$JSON_DURATION < 0.5" | bc -l) )); then
+        echo "✅ PERFORMANCE: Excellent! Ejection attempted in ${JSON_DURATION}s"
+        echo "   This confirms your code is FAST (not the 11s we saw with disk images)"
+        echo ""
+    elif (( $(echo "$JSON_DURATION > 5" | bc -l) )); then
+        echo "⚠️  PERFORMANCE: Slow (${JSON_DURATION}s)"
+        echo "   Check if these are disk images or network drives"
+        echo ""
+    fi
 fi
 
 # Analysis
