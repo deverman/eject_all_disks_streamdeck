@@ -210,21 +210,23 @@ echo ""
 
 # Function to remount all volumes
 remount_volumes() {
+    # Remount test DMGs if we created any
     if [[ ${#DMG_PATHS[@]} -gt 0 ]]; then
-        # Remount test DMGs
+        echo -e "${BLUE}Remounting test DMGs...${NC}" >&2
         for dmg in "${DMG_PATHS[@]}"; do
             hdiutil attach "$dmg" >/dev/null 2>&1 || true
         done
-    else
-        # Use our blazing-fast mount command for real volumes
-        echo -e "${BLUE}Auto-mounting volumes...${NC}" >&2
-        MOUNT_OUTPUT=$($BINARY_CMD mount --compact 2>&1)
+    fi
 
-        # Parse JSON to show results
-        if echo "$MOUNT_OUTPUT" | grep -q '"successCount"'; then
-            SUCCESS=$(echo "$MOUNT_OUTPUT" | grep -o '"successCount":[0-9]*' | grep -o '[0-9]*')
+    # Also remount any real external volumes using mount command
+    # (This is needed when benchmarking with both DMGs and real drives)
+    MOUNT_OUTPUT=$($BINARY_CMD mount --compact 2>&1)
+    if echo "$MOUNT_OUTPUT" | grep -q '"successCount"'; then
+        SUCCESS=$(echo "$MOUNT_OUTPUT" | grep -o '"successCount":[0-9]*' | grep -o '[0-9]*')
+        if [[ $SUCCESS -gt 0 ]]; then
             TOTAL=$(echo "$MOUNT_OUTPUT" | grep -o '"totalCount":[0-9]*' | grep -o '[0-9]*')
-            echo -e "${GREEN}  Mounted $SUCCESS/$TOTAL volumes${NC}" >&2
+            echo -e "${BLUE}Remounting real volumes...${NC}" >&2
+            echo -e "${GREEN}  Mounted $SUCCESS/$TOTAL real volumes${NC}" >&2
         fi
     fi
 
@@ -363,7 +365,8 @@ if [[ "$HAS_JETTISON" == true ]]; then
     # This ensures we measure the full ejection time
     # Using our binary's count to detect completion (more reliable than grepping diskutil output)
     # Correct AppleScript syntax: just "eject", not "eject all disks"
-    JETTISON_CMD="osascript -e 'tell application \"Jettison\" to eject' && while [[ \$(\"\$BINARY_PATH\" count) -gt 0 ]]; do sleep 0.1; done"
+    # Added timeout (120s) to prevent hanging if Jettison fails
+    JETTISON_CMD="osascript -e 'tell application \"Jettison\" to eject' && POLL=0; while [[ \$(\"\$BINARY_PATH\" count) -gt 0 ]] && [[ \$POLL -lt 1200 ]]; do sleep 0.1; POLL=\$((POLL + 1)); done"
 
     JETTISON_AVG=$(benchmark_method \
         "Jettison (via AppleScript)" \
