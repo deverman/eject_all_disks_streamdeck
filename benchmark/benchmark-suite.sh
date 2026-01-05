@@ -210,12 +210,27 @@ echo ""
 
 # Function to remount all volumes
 remount_volumes() {
+    local before_count=$("$BINARY_PATH" count 2>/dev/null || echo "0")
+
     # Remount test DMGs if we created any
     if [[ ${#DMG_PATHS[@]} -gt 0 ]]; then
         echo -e "${BLUE}Remounting test DMGs...${NC}" >&2
+        local mounted_count=0
+        local failed_count=0
+
         for dmg in "${DMG_PATHS[@]}"; do
-            hdiutil attach "$dmg" >/dev/null 2>&1 || true
+            if hdiutil attach "$dmg" >/dev/null 2>&1; then
+                mounted_count=$((mounted_count + 1))
+            else
+                failed_count=$((failed_count + 1))
+                echo -e "${RED}  ⚠️  Failed to remount: $(basename "$dmg")${NC}" >&2
+            fi
         done
+
+        echo -e "${GREEN}  Remounted $mounted_count/${#DMG_PATHS[@]} DMGs${NC}" >&2
+        if [[ $failed_count -gt 0 ]]; then
+            echo -e "${RED}  ⚠️  $failed_count DMG(s) failed to remount!${NC}" >&2
+        fi
     fi
 
     # Also remount any real external volumes using mount command
@@ -232,6 +247,16 @@ remount_volumes() {
 
     # Wait for volumes to stabilize
     sleep 2
+
+    # Verify volumes were actually remounted
+    local after_count=$("$BINARY_PATH" count 2>/dev/null || echo "0")
+    local expected_count=$((${#DMG_PATHS[@]} + $(echo "$MOUNT_OUTPUT" | grep -o '"successCount":[0-9]*' | grep -o '[0-9]*' || echo "0")))
+
+    if [[ $after_count -lt $before_count ]] && [[ $before_count -gt 0 ]]; then
+        echo -e "${YELLOW}  ⚠️  Volume count decreased: was $before_count, now $after_count${NC}" >&2
+    fi
+
+    echo -e "${BLUE}  Volume count: $after_count total${NC}" >&2
 }
 
 # Function to benchmark a method
@@ -243,14 +268,20 @@ benchmark_method() {
     # Send all diagnostic output to stderr so only the number is captured
     echo -e "${GREEN}Benchmarking: $method_name${NC}" >&2
     echo "  Command: $method_cmd" >&2
-    echo "  Running $RUNS tests..." >&2
+    echo "  Running 1 warmup + $RUNS tests..." >&2
+    echo "  (First run is warmup to prime caches and is not included in averages)" >&2
 
     local times=()
     local success_counts=()
     local total_counts=()
 
-    for run in $(seq 1 $RUNS); do
-        echo -n "  Run $run/$RUNS: " >&2
+    # Run warmup + actual tests (RUNS+1 total)
+    for run in $(seq 0 $RUNS); do
+        if [[ $run -eq 0 ]]; then
+            echo -n "  Warmup: " >&2
+        else
+            echo -n "  Run $run/$RUNS: " >&2
+        fi
 
         # Run the ejection command and capture output
         local start_time=$(date +%s.%N)
@@ -260,20 +291,37 @@ benchmark_method() {
 
         # Calculate elapsed time BEFORE remounting (don't include remount time)
         local elapsed=$(echo "$end_time - $start_time" | bc)
-        times+=("$elapsed")
+
+        # Only add to results if not warmup run
+        if [[ $run -gt 0 ]]; then
+            times+=("$elapsed")
+        fi
 
         # Parse output for success/failure counts if available
         if echo "$output" | grep -q "successCount"; then
             local success=$(echo "$output" | grep -o '"successCount":[0-9]*' | grep -o '[0-9]*')
             local total=$(echo "$output" | grep -o '"totalCount":[0-9]*' | grep -o '[0-9]*')
-            success_counts+=("$success")
-            total_counts+=("$total")
-            echo "${elapsed}s (${success}/${total} ejected)" >&2
+            if [[ $run -gt 0 ]]; then
+                success_counts+=("$success")
+                total_counts+=("$total")
+            fi
+            if [[ $run -eq 0 ]]; then
+                echo "${elapsed}s (${success}/${total} ejected) [cache priming]" >&2
+            else
+                echo "${elapsed}s (${success}/${total} ejected)" >&2
+            fi
         else
-            echo "${elapsed}s" >&2
+            if [[ $run -eq 0 ]]; then
+                echo "${elapsed}s [cache priming]" >&2
+            else
+                echo "${elapsed}s" >&2
+            fi
         fi
 
         # Save raw output
+        if [[ $run -eq 0 ]]; then
+            echo "=== WARMUP RUN (not included in averages) ===" >> "$results_file"
+        fi
         echo "$output" >> "$results_file"
         echo "---" >> "$results_file"
 
