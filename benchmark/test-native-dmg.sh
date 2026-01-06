@@ -47,12 +47,13 @@ VOLUME_COUNT=$("$BINARY_PATH" count)
 echo "Total volumes: $VOLUME_COUNT"
 echo ""
 
-# Test with Native API + verbose
-echo "Step 3: Ejecting with Native API (verbose)..."
-echo "Running: sudo $BINARY_PATH eject --verbose"
+# Test with Native API + verbose (with --force to bypass Spotlight/mds)
+echo "Step 3: Ejecting with Native API (verbose + force)..."
+echo "Running: sudo $BINARY_PATH eject --verbose --force"
+echo "(Force flag required due to Spotlight/mds indexing disk images)"
 echo ""
 
-sudo "$BINARY_PATH" eject --verbose 2>&1 | tee /tmp/native_debug.log
+sudo "$BINARY_PATH" eject --verbose --force 2>&1 | tee /tmp/native_debug.log
 
 echo ""
 echo "Step 4: Analysis..."

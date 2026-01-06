@@ -380,9 +380,17 @@ RESULTS_BASE="${RESULTS_DIR}/benchmark_${TIMESTAMP}"
 echo "========================================="
 echo "TEST 1: Native DiskArbitration API"
 echo "========================================="
+
+# Add --force flag when using disk images (required due to Spotlight/mds indexing)
+NATIVE_FLAGS="--compact"
+if [[ ${#DMG_PATHS[@]} -gt 0 ]]; then
+    NATIVE_FLAGS="--compact --force"
+    echo "Using --force flag (required for disk images due to Spotlight indexing)"
+fi
+
 NATIVE_AVG=$(benchmark_method \
     "Native API (DADiskUnmount)" \
-    "$BINARY_CMD eject --compact" \
+    "$BINARY_CMD eject $NATIVE_FLAGS" \
     "${RESULTS_BASE}_native.txt")
 
 echo "Remounting volumes for next test..."
