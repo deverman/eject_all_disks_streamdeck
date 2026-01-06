@@ -456,9 +456,23 @@ fi
 
 echo ""
 echo "Summary:"
-echo "  Native API is ${DISKUTIL_SPEEDUP}x faster than diskutil"
+# Calculate which method is faster
+NATIVE_FASTER=$(echo "$DISKUTIL_SPEEDUP > 1.0" | bc)
+if [[ "$NATIVE_FASTER" -eq 1 ]]; then
+    echo "  Native API is ${DISKUTIL_SPEEDUP}x faster than diskutil"
+else
+    INVERSE_SPEEDUP=$(echo "scale=2; 1.0 / $DISKUTIL_SPEEDUP" | bc)
+    echo "  diskutil is ${INVERSE_SPEEDUP}x faster than Native API"
+fi
+
 if [[ "$HAS_JETTISON" == true ]]; then
-    echo "  Native API is ${JETTISON_SPEEDUP}x faster than Jettison"
+    JETTISON_FASTER=$(echo "$JETTISON_SPEEDUP > 1.0" | bc)
+    if [[ "$JETTISON_FASTER" -eq 1 ]]; then
+        echo "  Native API is ${JETTISON_SPEEDUP}x faster than Jettison"
+    else
+        INVERSE_JETTISON=$(echo "scale=2; 1.0 / $JETTISON_SPEEDUP" | bc)
+        echo "  Jettison is ${INVERSE_JETTISON}x faster than Native API"
+    fi
 fi
 
 # Generate JSON output
@@ -489,4 +503,9 @@ EOF
 fi
 
 echo ""
-echo "Detailed logs saved to: ${RESULTS_BASE}_*.txt"
+echo "Detailed logs saved to:"
+echo "  ${RESULTS_BASE}_native.txt"
+echo "  ${RESULTS_BASE}_diskutil.txt"
+if [[ "$HAS_JETTISON" == true ]]; then
+    echo "  ${RESULTS_BASE}_jettison.txt"
+fi
