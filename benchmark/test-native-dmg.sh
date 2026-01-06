@@ -29,6 +29,9 @@ for i in 1 2 3; do
     # Mount it
     hdiutil attach "$DMG_PATH" >/dev/null 2>&1
 
+    # Disable Spotlight indexing to prevent mds from blocking ejection
+    touch "/Volumes/TestDisk${i}/.metadata_never_index"
+
     DMG_PATHS+=("$DMG_PATH")
     echo "  Created and mounted: TestDisk${i}"
 done
@@ -47,13 +50,13 @@ VOLUME_COUNT=$("$BINARY_PATH" count)
 echo "Total volumes: $VOLUME_COUNT"
 echo ""
 
-# Test with Native API + verbose (with --force to bypass Spotlight/mds)
-echo "Step 3: Ejecting with Native API (verbose + force)..."
-echo "Running: sudo $BINARY_PATH eject --verbose --force"
-echo "(Force flag required due to Spotlight/mds indexing disk images)"
+# Test with Native API + verbose (Spotlight disabled via .metadata_never_index)
+echo "Step 3: Ejecting with Native API (verbose)..."
+echo "Running: sudo $BINARY_PATH eject --verbose"
+echo "(Spotlight indexing disabled to prevent mds from blocking ejection)"
 echo ""
 
-sudo "$BINARY_PATH" eject --verbose --force 2>&1 | tee /tmp/native_debug.log
+sudo "$BINARY_PATH" eject --verbose 2>&1 | tee /tmp/native_debug.log
 
 echo ""
 echo "Step 4: Analysis..."
@@ -86,6 +89,9 @@ fi
 echo "Step 5: Remounting all disk images..."
 for dmg in "${DMG_PATHS[@]}"; do
     hdiutil attach "$dmg" >/dev/null 2>&1
+    # Disable Spotlight indexing to prevent mds from blocking ejection
+    local volname=$(basename "$dmg" .dmg | sed 's/_debug//')
+    touch "/Volumes/${volname}/.metadata_never_index" 2>/dev/null || true
 done
 sleep 2
 

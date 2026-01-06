@@ -150,6 +150,10 @@ if [[ $CREATE_DMGS -gt 0 ]]; then
         DMG_PATH="$TEMP_DIR/TestDisk${i}.dmg"
         hdiutil create -size 10m -fs HFS+ -volname "TestDisk${i}" "$DMG_PATH" >/dev/null 2>&1
         hdiutil attach "$DMG_PATH" >/dev/null 2>&1
+
+        # Disable Spotlight indexing to prevent mds from blocking ejection
+        touch "/Volumes/TestDisk${i}/.metadata_never_index"
+
         DMG_PATHS+=("$DMG_PATH")
         echo "  Created and mounted: TestDisk${i}"
     done
@@ -220,6 +224,9 @@ remount_volumes() {
 
         for dmg in "${DMG_PATHS[@]}"; do
             if hdiutil attach "$dmg" >/dev/null 2>&1; then
+                # Disable Spotlight indexing to prevent mds from blocking ejection
+                local volname=$(basename "$dmg" .dmg)
+                touch "/Volumes/${volname}/.metadata_never_index" 2>/dev/null || true
                 mounted_count=$((mounted_count + 1))
             else
                 failed_count=$((failed_count + 1))
@@ -381,16 +388,9 @@ echo "========================================="
 echo "TEST 1: Native DiskArbitration API"
 echo "========================================="
 
-# Add --force flag when using disk images (required due to Spotlight/mds indexing)
-NATIVE_FLAGS="--compact"
-if [[ ${#DMG_PATHS[@]} -gt 0 ]]; then
-    NATIVE_FLAGS="--compact --force"
-    echo "Using --force flag (required for disk images due to Spotlight indexing)"
-fi
-
 NATIVE_AVG=$(benchmark_method \
     "Native API (DADiskUnmount)" \
-    "$BINARY_CMD eject $NATIVE_FLAGS" \
+    "$BINARY_CMD eject --compact" \
     "${RESULTS_BASE}_native.txt")
 
 echo "Remounting volumes for next test..."
