@@ -30,7 +30,8 @@ for i in 1 2 3; do
     hdiutil attach "$DMG_PATH" >/dev/null 2>&1
 
     # Disable Spotlight indexing to prevent mds from blocking ejection
-    touch "/Volumes/TestDisk${i}/.metadata_never_index"
+    # Using mdutil is more reliable than .metadata_never_index for immediate effect
+    sudo mdutil -i off "/Volumes/TestDisk${i}" >/dev/null 2>&1
 
     DMG_PATHS+=("$DMG_PATH")
     echo "  Created and mounted: TestDisk${i}"
@@ -90,8 +91,8 @@ echo "Step 5: Remounting all disk images..."
 for dmg in "${DMG_PATHS[@]}"; do
     hdiutil attach "$dmg" >/dev/null 2>&1
     # Disable Spotlight indexing to prevent mds from blocking ejection
-    local volname=$(basename "$dmg" .dmg | sed 's/_debug//')
-    touch "/Volumes/${volname}/.metadata_never_index" 2>/dev/null || true
+    volname=$(basename "$dmg" .dmg | sed 's/_debug//')
+    sudo mdutil -i off "/Volumes/${volname}" >/dev/null 2>&1 || true
 done
 sleep 2
 

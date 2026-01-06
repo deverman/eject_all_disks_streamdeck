@@ -152,7 +152,8 @@ if [[ $CREATE_DMGS -gt 0 ]]; then
         hdiutil attach "$DMG_PATH" >/dev/null 2>&1
 
         # Disable Spotlight indexing to prevent mds from blocking ejection
-        touch "/Volumes/TestDisk${i}/.metadata_never_index"
+        # Using mdutil is more reliable than .metadata_never_index for immediate effect
+        sudo mdutil -i off "/Volumes/TestDisk${i}" >/dev/null 2>&1
 
         DMG_PATHS+=("$DMG_PATH")
         echo "  Created and mounted: TestDisk${i}"
@@ -226,7 +227,7 @@ remount_volumes() {
             if hdiutil attach "$dmg" >/dev/null 2>&1; then
                 # Disable Spotlight indexing to prevent mds from blocking ejection
                 local volname=$(basename "$dmg" .dmg)
-                touch "/Volumes/${volname}/.metadata_never_index" 2>/dev/null || true
+                sudo mdutil -i off "/Volumes/${volname}" >/dev/null 2>&1 || true
                 mounted_count=$((mounted_count + 1))
             else
                 failed_count=$((failed_count + 1))
