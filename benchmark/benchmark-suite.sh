@@ -391,7 +391,7 @@ echo "========================================="
 
 NATIVE_AVG=$(benchmark_method \
     "Native API (DADiskUnmount)" \
-    "$BINARY_CMD eject --compact" \
+    "$BINARY_CMD eject --unmount-only --compact" \
     "${RESULTS_BASE}_native.txt")
 
 echo "Remounting volumes for next test..."
@@ -404,7 +404,7 @@ echo "TEST 2: diskutil subprocess"
 echo "========================================="
 DISKUTIL_AVG=$(benchmark_method \
     "diskutil subprocess" \
-    "$BINARY_CMD eject --use-diskutil --compact" \
+    "$BINARY_CMD eject --use-diskutil --unmount-only --compact" \
     "${RESULTS_BASE}_diskutil.txt")
 
 # Benchmark 3: Jettison (if available)

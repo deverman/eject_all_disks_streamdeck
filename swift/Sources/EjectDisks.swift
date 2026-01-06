@@ -424,7 +424,7 @@ nonisolated func getBlockingProcesses(path: String) -> [ProcessInfoOutput] {
 /// Eject all volumes using native DiskArbitration API (faster than diskutil)
 /// When run with sudo, this provides passwordless ejection.
 /// Without sudo, some volumes may fail with "Not privileged" errors.
-func ejectAllVolumesNative(force: Bool = false, verbose: Bool = false) async -> EjectOutput {
+func ejectAllVolumesNative(force: Bool = false, unmountOnly: Bool = false, verbose: Bool = false) async -> EjectOutput {
     let session = DiskSession.shared
     let volumes = await session.enumerateEjectableVolumes()
     let startTime = Date()
@@ -440,7 +440,16 @@ func ejectAllVolumesNative(force: Bool = false, verbose: Bool = false) async -> 
         )
     }
 
-    let options = force ? EjectOptions.forceEject : EjectOptions.default
+    // Choose eject options based on flags
+    let options: EjectOptions
+    if unmountOnly {
+        options = EjectOptions.unmountOnly
+    } else if force {
+        options = EjectOptions.forceEject
+    } else {
+        options = EjectOptions.default
+    }
+
     let batchResult = await session.ejectAll(volumes, options: options)
 
     // Convert to legacy output format with parallel blocking process detection on failures
@@ -515,10 +524,11 @@ func ejectAllVolumesNative(force: Bool = false, verbose: Bool = false) async -> 
 // MARK: - Slow Diskutil Ejection (for comparison)
 
 /// Eject a single volume using diskutil subprocess
-nonisolated func ejectVolumeWithDiskutilSync(path: String, verbose: Bool = false) -> (success: Bool, error: String?, blockingProcesses: [ProcessInfoOutput]?) {
+nonisolated func ejectVolumeWithDiskutilSync(path: String, unmountOnly: Bool = false, verbose: Bool = false) -> (success: Bool, error: String?, blockingProcesses: [ProcessInfoOutput]?) {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
-    process.arguments = ["eject", path]
+    // Use "unmount" for unmountOnly, "eject" for physical ejection
+    process.arguments = [unmountOnly ? "unmount" : "eject", path]
 
     let pipe = Pipe()
     process.standardOutput = pipe
@@ -546,7 +556,7 @@ nonisolated func ejectVolumeWithDiskutilSync(path: String, verbose: Bool = false
 }
 
 /// Eject all volumes using diskutil subprocess (slow, for comparison)
-func ejectAllVolumesWithDiskutil(verbose: Bool = false) async -> EjectOutput {
+func ejectAllVolumesWithDiskutil(unmountOnly: Bool = false, verbose: Bool = false) async -> EjectOutput {
     let volumes = await getEjectableVolumesLegacy()
     let startTime = Date()
 
@@ -565,7 +575,7 @@ func ejectAllVolumesWithDiskutil(verbose: Bool = false) async -> EjectOutput {
         for volume in volumes {
             group.addTask {
                 let volumeStartTime = Date()
-                let (success, error, blockingProcesses) = ejectVolumeWithDiskutilSync(path: volume.path, verbose: verbose)
+                let (success, error, blockingProcesses) = ejectVolumeWithDiskutilSync(path: volume.path, unmountOnly: unmountOnly, verbose: verbose)
                 let duration = Date().timeIntervalSince(volumeStartTime)
 
                 return EjectResult(
@@ -679,12 +689,15 @@ extension EjectDisks {
         @Flag(name: .long, help: "Use diskutil subprocess instead of native API (slower)")
         var useDiskutil = false
 
+        @Flag(name: .long, help: "Unmount only (don't physically eject the device)")
+        var unmountOnly = false
+
         func run() async {
             let output: EjectOutput
             if useDiskutil {
-                output = await ejectAllVolumesWithDiskutil(verbose: verbose)
+                output = await ejectAllVolumesWithDiskutil(unmountOnly: unmountOnly, verbose: verbose)
             } else {
-                output = await ejectAllVolumesNative(force: force, verbose: verbose)
+                output = await ejectAllVolumesNative(force: force, unmountOnly: unmountOnly, verbose: verbose)
             }
             printJSON(output, compact: compact)
         }
