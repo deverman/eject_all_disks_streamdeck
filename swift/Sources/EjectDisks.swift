@@ -119,23 +119,24 @@ nonisolated func getDiskInfo(deviceIdentifier: String) -> [String: Any]? {
 
 /// Discover unmounted external volumes using diskutil (optimized for speed)
 func getUnmountedExternalVolumes(verbose: Bool = false) async -> [String] {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
-    process.arguments = ["list", "-plist"]
+    // Step 1: Get list of all disks to identify external disks
+    let listProcess = Process()
+    listProcess.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
+    listProcess.arguments = ["list", "-plist"]
 
-    let pipe = Pipe()
-    process.standardOutput = pipe
-    process.standardError = Pipe()
+    let listPipe = Pipe()
+    listProcess.standardOutput = listPipe
+    listProcess.standardError = Pipe()
 
     do {
-        try process.run()
-        process.waitUntilExit()
+        try listProcess.run()
+        listProcess.waitUntilExit()
 
-        guard process.terminationStatus == 0 else { return [] }
+        guard listProcess.terminationStatus == 0 else { return [] }
 
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-              let allDisks = plist["AllDisksAndPartitions"] as? [[String: Any]] else {
+        let listData = listPipe.fileHandleForReading.readDataToEndOfFile()
+        guard let listPlist = try? PropertyListSerialization.propertyList(from: listData, format: nil) as? [String: Any],
+              let allDisks = listPlist["AllDisksAndPartitions"] as? [[String: Any]] else {
             return []
         }
 
@@ -169,8 +170,128 @@ func getUnmountedExternalVolumes(verbose: Bool = false) async -> [String] {
             FileHandle.standardError.write("DEBUG: Found \(externalDiskIds.count) external disks: \(externalDiskIds)\n".data(using: .utf8)!)
         }
 
-        // Now collect unmounted partitions from external disks
         var unmountedDevices: [String] = []
+
+        // Step 2: Get APFS volumes from diskutil apfs list -plist
+        let apfsProcess = Process()
+        apfsProcess.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
+        apfsProcess.arguments = ["apfs", "list", "-plist"]
+
+        let apfsPipe = Pipe()
+        apfsProcess.standardOutput = apfsPipe
+        apfsProcess.standardError = Pipe()
+
+        try apfsProcess.run()
+        apfsProcess.waitUntilExit()
+
+        if apfsProcess.terminationStatus == 0 {
+            let apfsData = apfsPipe.fileHandleForReading.readDataToEndOfFile()
+            if let apfsPlist = try? PropertyListSerialization.propertyList(from: apfsData, format: nil) as? [String: Any],
+               let containers = apfsPlist["Containers"] as? [[String: Any]] {
+
+                if verbose {
+                    FileHandle.standardError.write("DEBUG: Found \(containers.count) APFS containers\n".data(using: .utf8)!)
+                }
+
+                for container in containers {
+                    guard let containerRef = container["ContainerReference"] as? String else { continue }
+
+                    if verbose {
+                        FileHandle.standardError.write("DEBUG: Checking APFS container \(containerRef)\n".data(using: .utf8)!)
+                    }
+
+                    // Check if this container's physical store is on an external disk
+                    var isExternalContainer = false
+                    if let physicalStores = container["PhysicalStores"] as? [[String: Any]] {
+                        for store in physicalStores {
+                            if let storeDeviceId = store["DeviceIdentifier"] as? String {
+                                // Extract the whole disk identifier (e.g., disk4s2 -> disk4)
+                                // Use regex to match "disk" followed by digits
+                                let wholeDiskId: String
+                                if let range = storeDeviceId.range(of: #"^disk\d+"#, options: .regularExpression) {
+                                    wholeDiskId = String(storeDeviceId[range])
+                                } else {
+                                    wholeDiskId = storeDeviceId
+                                }
+
+                                if verbose {
+                                    FileHandle.standardError.write("DEBUG:   Physical store: \(storeDeviceId) (whole disk: \(wholeDiskId))\n".data(using: .utf8)!)
+                                }
+
+                                if externalDiskIds.contains(wholeDiskId) {
+                                    isExternalContainer = true
+                                    if verbose {
+                                        FileHandle.standardError.write("DEBUG:   ✓ Container is on external disk\n".data(using: .utf8)!)
+                                    }
+                                    break
+                                }
+                            }
+                        }
+                    }
+
+                    if !isExternalContainer {
+                        if verbose {
+                            FileHandle.standardError.write("DEBUG:   ✗ Container is not on external disk, skipping\n".data(using: .utf8)!)
+                        }
+                        continue
+                    }
+
+                    // Process volumes in this external container
+                    if let volumes = container["Volumes"] as? [[String: Any]] {
+                        if verbose {
+                            FileHandle.standardError.write("DEBUG:   Found \(volumes.count) volumes in container\n".data(using: .utf8)!)
+                        }
+
+                        for volume in volumes {
+                            guard let volumeDeviceId = volume["DeviceIdentifier"] as? String else { continue }
+                            let volumeName = volume["Name"] as? String
+                            let mountPoint = volume["MountPoint"] as? String
+                            let roles = volume["Roles"] as? [String] ?? []
+
+                            if verbose {
+                                let vnStr = volumeName ?? "nil"
+                                let mpStr = mountPoint ?? "nil"
+                                let rolesStr = roles.isEmpty ? "none" : roles.joined(separator: ", ")
+                                FileHandle.standardError.write("DEBUG:     Volume \(volumeDeviceId): Name=\(vnStr), MountPoint=\(mpStr), Roles=\(rolesStr)\n".data(using: .utf8)!)
+                            }
+
+                            // Skip system volumes (Preboot, Recovery, VM, Update roles)
+                            let systemRoles: Set<String> = ["Preboot", "Recovery", "VM", "Update"]
+                            let hasSystemRole = !roles.filter { systemRoles.contains($0) }.isEmpty
+
+                            if hasSystemRole {
+                                if verbose {
+                                    FileHandle.standardError.write("DEBUG:       ✗ SKIPPED (system role)\n".data(using: .utf8)!)
+                                }
+                                continue
+                            }
+
+                            // Skip volumes without names
+                            guard let volName = volumeName, !volName.isEmpty else {
+                                if verbose {
+                                    FileHandle.standardError.write("DEBUG:       ✗ SKIPPED (no name)\n".data(using: .utf8)!)
+                                }
+                                continue
+                            }
+
+                            // Only include unmounted volumes
+                            if mountPoint == nil {
+                                if verbose {
+                                    FileHandle.standardError.write("DEBUG:       ✓ ADDED to unmounted list\n".data(using: .utf8)!)
+                                }
+                                unmountedDevices.append(volumeDeviceId)
+                            } else {
+                                if verbose {
+                                    FileHandle.standardError.write("DEBUG:       ✗ SKIPPED (has MountPoint)\n".data(using: .utf8)!)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Step 3: Also check for non-APFS volumes (HFS+, ExFAT, etc) from diskutil list
         for diskInfo in allDisks {
             guard let deviceId = diskInfo["DeviceIdentifier"] as? String,
                   externalDiskIds.contains(deviceId) else {
@@ -178,7 +299,7 @@ func getUnmountedExternalVolumes(verbose: Bool = false) async -> [String] {
             }
 
             if verbose {
-                FileHandle.standardError.write("DEBUG: Checking disk \(deviceId)\n".data(using: .utf8)!)
+                FileHandle.standardError.write("DEBUG: Checking non-APFS partitions on disk \(deviceId)\n".data(using: .utf8)!)
             }
 
             // Check regular partitions
@@ -196,62 +317,31 @@ func getUnmountedExternalVolumes(verbose: Bool = false) async -> [String] {
                         FileHandle.standardError.write("DEBUG:   Partition \(partDeviceId): MountPoint=\(mpStr), VolumeName=\(vnStr), Content=\(ctStr)\n".data(using: .utf8)!)
                     }
 
-                    // Check if this partition is an APFS container with volumes
-                    if content == "Apple_APFS", let apfsVolumes = partition["APFSVolumes"] as? [[String: Any]] {
+                    // Skip APFS containers (already handled above)
+                    if content == "Apple_APFS" {
                         if verbose {
-                            FileHandle.standardError.write("DEBUG:     Found APFS container with \(apfsVolumes.count) volumes\n".data(using: .utf8)!)
+                            FileHandle.standardError.write("DEBUG:     ✗ SKIPPED (APFS container, handled separately)\n".data(using: .utf8)!)
                         }
+                        continue
+                    }
 
-                        for apfsVolume in apfsVolumes {
-                            guard let apfsDeviceId = apfsVolume["DeviceIdentifier"] as? String else { continue }
-                            let apfsMountPoint = apfsVolume["MountPoint"] as? String
-                            let apfsVolumeName = apfsVolume["VolumeName"] as? String
+                    // Regular HFS+/ExFAT/etc partition
+                    let isSystemPartition = content == "EFI" ||
+                                           content == "Apple_Boot" ||
+                                           content == "Apple_APFS_Recovery" ||
+                                           volumeName == "EFI" ||
+                                           volumeName == "Recovery"
 
-                            if verbose {
-                                let mpStr = apfsMountPoint ?? "nil"
-                                let vnStr = apfsVolumeName ?? "nil"
-                                FileHandle.standardError.write("DEBUG:       APFS Volume \(apfsDeviceId): MountPoint=\(mpStr), VolumeName=\(vnStr)\n".data(using: .utf8)!)
-                            }
-
-                            // Skip system volumes (no name or system role)
-                            guard let volName = apfsVolumeName, !volName.isEmpty else {
-                                if verbose {
-                                    FileHandle.standardError.write("DEBUG:         ✗ SKIPPED (no VolumeName)\n".data(using: .utf8)!)
-                                }
-                                continue
-                            }
-
-                            // Only include unmounted volumes
-                            if apfsMountPoint == nil {
-                                if verbose {
-                                    FileHandle.standardError.write("DEBUG:         ✓ ADDED to unmounted list\n".data(using: .utf8)!)
-                                }
-                                unmountedDevices.append(apfsDeviceId)
-                            } else {
-                                if verbose {
-                                    FileHandle.standardError.write("DEBUG:         ✗ SKIPPED (has MountPoint)\n".data(using: .utf8)!)
-                                }
-                            }
+                    // Only include unmounted user data volumes
+                    if mountPoint == nil, volumeName != nil, !isSystemPartition {
+                        if verbose {
+                            FileHandle.standardError.write("DEBUG:     ✓ ADDED to unmounted list\n".data(using: .utf8)!)
                         }
+                        unmountedDevices.append(partDeviceId)
                     } else {
-                        // Regular HFS+/ExFAT/etc partition
-                        let isSystemPartition = content == "EFI" ||
-                                               content == "Apple_Boot" ||
-                                               content == "Apple_APFS_Recovery" ||
-                                               volumeName == "EFI" ||
-                                               volumeName == "Recovery"
-
-                        // Only include unmounted user data volumes
-                        if mountPoint == nil, volumeName != nil, !isSystemPartition {
-                            if verbose {
-                                FileHandle.standardError.write("DEBUG:     ✓ ADDED to unmounted list\n".data(using: .utf8)!)
-                            }
-                            unmountedDevices.append(partDeviceId)
-                        } else {
-                            if verbose {
-                                let reason = mountPoint != nil ? "has MountPoint" : volumeName == nil ? "no VolumeName" : "is system partition"
-                                FileHandle.standardError.write("DEBUG:     ✗ SKIPPED (\(reason))\n".data(using: .utf8)!)
-                            }
+                        if verbose {
+                            let reason = mountPoint != nil ? "has MountPoint" : volumeName == nil ? "no VolumeName" : "is system partition"
+                            FileHandle.standardError.write("DEBUG:     ✗ SKIPPED (\(reason))\n".data(using: .utf8)!)
                         }
                     }
                 }
