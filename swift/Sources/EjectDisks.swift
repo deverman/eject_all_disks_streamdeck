@@ -59,6 +59,21 @@ struct BenchmarkOutput: Codable, Sendable {
     let speedup: Double?
 }
 
+struct MountResult: Codable, Sendable {
+    let device: String
+    let mountPoint: String?
+    let success: Bool
+    let error: String?
+}
+
+struct MountOutput: Codable, Sendable {
+    let totalCount: Int
+    let successCount: Int
+    let failedCount: Int
+    let results: [MountResult]
+    let totalDuration: Double
+}
+
 // MARK: - Volume Discovery (Legacy for JSON compatibility)
 
 /// Get list of ejectable volumes using legacy format for JSON output
@@ -75,6 +90,369 @@ func getEjectableVolumesLegacy() async -> [VolumeInfoOutput] {
             isRemovable: volume.info.isRemovable
         )
     }
+}
+
+// MARK: - Mount Operations
+
+/// Get disk info using diskutil (for parallel execution)
+nonisolated func getDiskInfo(deviceIdentifier: String) -> [String: Any]? {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
+    process.arguments = ["info", "-plist", deviceIdentifier]
+
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = Pipe()
+
+    do {
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else { return nil }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+    } catch {
+        return nil
+    }
+}
+
+/// Discover unmounted external volumes using diskutil (optimized for speed)
+func getUnmountedExternalVolumes(verbose: Bool = false) async -> [String] {
+    // Step 1: Get list of all disks to identify external disks
+    let listProcess = Process()
+    listProcess.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
+    listProcess.arguments = ["list", "-plist"]
+
+    let listPipe = Pipe()
+    listProcess.standardOutput = listPipe
+    listProcess.standardError = Pipe()
+
+    do {
+        try listProcess.run()
+        listProcess.waitUntilExit()
+
+        guard listProcess.terminationStatus == 0 else { return [] }
+
+        let listData = listPipe.fileHandleForReading.readDataToEndOfFile()
+        guard let listPlist = try? PropertyListSerialization.propertyList(from: listData, format: nil) as? [String: Any],
+              let allDisks = listPlist["AllDisksAndPartitions"] as? [[String: Any]] else {
+            return []
+        }
+
+        // Collect all whole disk device identifiers for parallel checking
+        let diskIdentifiers = allDisks.compactMap { $0["DeviceIdentifier"] as? String }
+
+        if verbose {
+            FileHandle.standardError.write("DEBUG: Found \(allDisks.count) disks total\n".data(using: .utf8)!)
+        }
+
+        // Check all disks in parallel to find which are external (Sendable-safe)
+        let externalDiskIds = await withTaskGroup(of: (String, Bool).self, returning: Set<String>.self) { group in
+            for identifier in diskIdentifiers {
+                group.addTask {
+                    let info = getDiskInfo(deviceIdentifier: identifier)
+                    let isInternal = info?["Internal"] as? Bool ?? true
+                    return (identifier, !isInternal)
+                }
+            }
+
+            var externalIds = Set<String>()
+            for await (identifier, isExternal) in group {
+                if isExternal {
+                    externalIds.insert(identifier)
+                }
+            }
+            return externalIds
+        }
+
+        if verbose {
+            FileHandle.standardError.write("DEBUG: Found \(externalDiskIds.count) external disks: \(externalDiskIds)\n".data(using: .utf8)!)
+        }
+
+        var unmountedDevices: [String] = []
+
+        // Step 2: Get APFS volumes from diskutil apfs list -plist
+        let apfsProcess = Process()
+        apfsProcess.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
+        apfsProcess.arguments = ["apfs", "list", "-plist"]
+
+        let apfsPipe = Pipe()
+        apfsProcess.standardOutput = apfsPipe
+        apfsProcess.standardError = Pipe()
+
+        try apfsProcess.run()
+        apfsProcess.waitUntilExit()
+
+        if apfsProcess.terminationStatus == 0 {
+            let apfsData = apfsPipe.fileHandleForReading.readDataToEndOfFile()
+            if let apfsPlist = try? PropertyListSerialization.propertyList(from: apfsData, format: nil) as? [String: Any],
+               let containers = apfsPlist["Containers"] as? [[String: Any]] {
+
+                if verbose {
+                    FileHandle.standardError.write("DEBUG: Found \(containers.count) APFS containers\n".data(using: .utf8)!)
+                }
+
+                for container in containers {
+                    guard let containerRef = container["ContainerReference"] as? String else { continue }
+
+                    if verbose {
+                        FileHandle.standardError.write("DEBUG: Checking APFS container \(containerRef)\n".data(using: .utf8)!)
+                    }
+
+                    // Check if this container's physical store is on an external disk
+                    var isExternalContainer = false
+                    if let physicalStores = container["PhysicalStores"] as? [[String: Any]] {
+                        for store in physicalStores {
+                            if let storeDeviceId = store["DeviceIdentifier"] as? String {
+                                // Extract the whole disk identifier (e.g., disk4s2 -> disk4)
+                                // Use regex to match "disk" followed by digits
+                                let wholeDiskId: String
+                                if let range = storeDeviceId.range(of: #"^disk\d+"#, options: .regularExpression) {
+                                    wholeDiskId = String(storeDeviceId[range])
+                                } else {
+                                    wholeDiskId = storeDeviceId
+                                }
+
+                                if verbose {
+                                    FileHandle.standardError.write("DEBUG:   Physical store: \(storeDeviceId) (whole disk: \(wholeDiskId))\n".data(using: .utf8)!)
+                                }
+
+                                if externalDiskIds.contains(wholeDiskId) {
+                                    isExternalContainer = true
+                                    if verbose {
+                                        FileHandle.standardError.write("DEBUG:   ✓ Container is on external disk\n".data(using: .utf8)!)
+                                    }
+                                    break
+                                }
+                            }
+                        }
+                    }
+
+                    if !isExternalContainer {
+                        if verbose {
+                            FileHandle.standardError.write("DEBUG:   ✗ Container is not on external disk, skipping\n".data(using: .utf8)!)
+                        }
+                        continue
+                    }
+
+                    // Process volumes in this external container
+                    if let volumes = container["Volumes"] as? [[String: Any]] {
+                        if verbose {
+                            FileHandle.standardError.write("DEBUG:   Found \(volumes.count) volumes in container\n".data(using: .utf8)!)
+                        }
+
+                        for volume in volumes {
+                            guard let volumeDeviceId = volume["DeviceIdentifier"] as? String else { continue }
+                            let volumeName = volume["Name"] as? String
+                            let mountPoint = volume["MountPoint"] as? String
+                            let roles = volume["Roles"] as? [String] ?? []
+
+                            if verbose {
+                                let vnStr = volumeName ?? "nil"
+                                let mpStr = mountPoint ?? "nil"
+                                let rolesStr = roles.isEmpty ? "none" : roles.joined(separator: ", ")
+                                FileHandle.standardError.write("DEBUG:     Volume \(volumeDeviceId): Name=\(vnStr), MountPoint=\(mpStr), Roles=\(rolesStr)\n".data(using: .utf8)!)
+                            }
+
+                            // Skip system volumes (Preboot, Recovery, VM, Update roles)
+                            let systemRoles: Set<String> = ["Preboot", "Recovery", "VM", "Update"]
+                            let hasSystemRole = !roles.filter { systemRoles.contains($0) }.isEmpty
+
+                            if hasSystemRole {
+                                if verbose {
+                                    FileHandle.standardError.write("DEBUG:       ✗ SKIPPED (system role)\n".data(using: .utf8)!)
+                                }
+                                continue
+                            }
+
+                            // Skip volumes without names
+                            guard let volName = volumeName, !volName.isEmpty else {
+                                if verbose {
+                                    FileHandle.standardError.write("DEBUG:       ✗ SKIPPED (no name)\n".data(using: .utf8)!)
+                                }
+                                continue
+                            }
+
+                            // Only include unmounted volumes
+                            if mountPoint == nil {
+                                if verbose {
+                                    FileHandle.standardError.write("DEBUG:       ✓ ADDED to unmounted list\n".data(using: .utf8)!)
+                                }
+                                unmountedDevices.append(volumeDeviceId)
+                            } else {
+                                if verbose {
+                                    FileHandle.standardError.write("DEBUG:       ✗ SKIPPED (has MountPoint)\n".data(using: .utf8)!)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Step 3: Also check for non-APFS volumes (HFS+, ExFAT, etc) from diskutil list
+        for diskInfo in allDisks {
+            guard let deviceId = diskInfo["DeviceIdentifier"] as? String,
+                  externalDiskIds.contains(deviceId) else {
+                continue
+            }
+
+            if verbose {
+                FileHandle.standardError.write("DEBUG: Checking non-APFS partitions on disk \(deviceId)\n".data(using: .utf8)!)
+            }
+
+            // Check regular partitions
+            if let partitions = diskInfo["Partitions"] as? [[String: Any]] {
+                for partition in partitions {
+                    guard let partDeviceId = partition["DeviceIdentifier"] as? String else { continue }
+                    let mountPoint = partition["MountPoint"] as? String
+                    let volumeName = partition["VolumeName"] as? String
+                    let content = partition["Content"] as? String
+
+                    if verbose {
+                        let mpStr = mountPoint ?? "nil"
+                        let vnStr = volumeName ?? "nil"
+                        let ctStr = content ?? "nil"
+                        FileHandle.standardError.write("DEBUG:   Partition \(partDeviceId): MountPoint=\(mpStr), VolumeName=\(vnStr), Content=\(ctStr)\n".data(using: .utf8)!)
+                    }
+
+                    // Skip APFS containers (already handled above)
+                    if content == "Apple_APFS" {
+                        if verbose {
+                            FileHandle.standardError.write("DEBUG:     ✗ SKIPPED (APFS container, handled separately)\n".data(using: .utf8)!)
+                        }
+                        continue
+                    }
+
+                    // Regular HFS+/ExFAT/etc partition
+                    let isSystemPartition = content == "EFI" ||
+                                           content == "Apple_Boot" ||
+                                           content == "Apple_APFS_Recovery" ||
+                                           volumeName == "EFI" ||
+                                           volumeName == "Recovery"
+
+                    // Only include unmounted user data volumes
+                    if mountPoint == nil, volumeName != nil, !isSystemPartition {
+                        if verbose {
+                            FileHandle.standardError.write("DEBUG:     ✓ ADDED to unmounted list\n".data(using: .utf8)!)
+                        }
+                        unmountedDevices.append(partDeviceId)
+                    } else {
+                        if verbose {
+                            let reason = mountPoint != nil ? "has MountPoint" : volumeName == nil ? "no VolumeName" : "is system partition"
+                            FileHandle.standardError.write("DEBUG:     ✗ SKIPPED (\(reason))\n".data(using: .utf8)!)
+                        }
+                    }
+                }
+            }
+        }
+
+        if verbose {
+            FileHandle.standardError.write("DEBUG: Total unmounted volumes found: \(unmountedDevices.count)\n".data(using: .utf8)!)
+            FileHandle.standardError.write("DEBUG: Unmounted devices: \(unmountedDevices)\n".data(using: .utf8)!)
+        }
+
+        return unmountedDevices
+    } catch {
+        return []
+    }
+}
+
+/// Mount a single volume using diskutil
+nonisolated func mountVolumeWithDiskutil(device: String) -> (success: Bool, mountPoint: String?, error: String?) {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
+    process.arguments = ["mount", device]
+
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = pipe
+
+    do {
+        try process.run()
+        process.waitUntilExit()
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: data, encoding: .utf8) ?? ""
+
+        if process.terminationStatus == 0 {
+            // Parse mount point from output (format: "Volume XYZ on /dev/diskXsY mounted")
+            // or try to get it from diskutil info
+            let infoProcess = Process()
+            infoProcess.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
+            infoProcess.arguments = ["info", "-plist", device]
+
+            let infoPipe = Pipe()
+            infoProcess.standardOutput = infoPipe
+            infoProcess.standardError = Pipe()
+
+            try? infoProcess.run()
+            infoProcess.waitUntilExit()
+
+            var mountPoint: String? = nil
+            if infoProcess.terminationStatus == 0 {
+                let infoData = infoPipe.fileHandleForReading.readDataToEndOfFile()
+                if let infoPlist = try? PropertyListSerialization.propertyList(from: infoData, format: nil) as? [String: Any] {
+                    mountPoint = infoPlist["MountPoint"] as? String
+                }
+            }
+
+            return (true, mountPoint, nil)
+        } else {
+            let errorMsg = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (false, nil, errorMsg)
+        }
+    } catch {
+        return (false, nil, error.localizedDescription)
+    }
+}
+
+/// Mount all unmounted external volumes
+func mountAllExternalVolumes(verbose: Bool = false) async -> MountOutput {
+    let startTime = Date()
+    let devices = await getUnmountedExternalVolumes(verbose: verbose)
+
+    guard !devices.isEmpty else {
+        return MountOutput(
+            totalCount: 0,
+            successCount: 0,
+            failedCount: 0,
+            results: [],
+            totalDuration: 0
+        )
+    }
+
+    let results = await withTaskGroup(of: MountResult.self, returning: [MountResult].self) { group in
+        for device in devices {
+            group.addTask {
+                let (success, mountPoint, error) = mountVolumeWithDiskutil(device: device)
+                return MountResult(
+                    device: device,
+                    mountPoint: mountPoint,
+                    success: success,
+                    error: error
+                )
+            }
+        }
+
+        var collectedResults: [MountResult] = []
+        for await result in group {
+            collectedResults.append(result)
+        }
+        return collectedResults
+    }
+
+    let totalDuration = Date().timeIntervalSince(startTime)
+    let successCount = results.filter { $0.success }.count
+
+    return MountOutput(
+        totalCount: devices.count,
+        successCount: successCount,
+        failedCount: devices.count - successCount,
+        results: results,
+        totalDuration: totalDuration
+    )
 }
 
 // MARK: - Process Discovery (Native libproc implementation)
@@ -209,7 +587,7 @@ nonisolated func getBlockingProcesses(path: String) -> [ProcessInfoOutput] {
 /// Eject all volumes using native DiskArbitration API (faster than diskutil)
 /// When run with sudo, this provides passwordless ejection.
 /// Without sudo, some volumes may fail with "Not privileged" errors.
-func ejectAllVolumesNative(force: Bool = false, verbose: Bool = false) async -> EjectOutput {
+func ejectAllVolumesNative(force: Bool = false, unmountOnly: Bool = false, verbose: Bool = false) async -> EjectOutput {
     let session = DiskSession.shared
     let volumes = await session.enumerateEjectableVolumes()
     let startTime = Date()
@@ -225,7 +603,16 @@ func ejectAllVolumesNative(force: Bool = false, verbose: Bool = false) async -> 
         )
     }
 
-    let options = force ? EjectOptions.forceEject : EjectOptions.default
+    // Choose eject options based on flags
+    let options: EjectOptions
+    if unmountOnly {
+        options = EjectOptions.unmountOnly
+    } else if force {
+        options = EjectOptions.forceEject
+    } else {
+        options = EjectOptions.default
+    }
+
     let batchResult = await session.ejectAll(volumes, options: options)
 
     // Convert to legacy output format with parallel blocking process detection on failures
@@ -300,10 +687,11 @@ func ejectAllVolumesNative(force: Bool = false, verbose: Bool = false) async -> 
 // MARK: - Slow Diskutil Ejection (for comparison)
 
 /// Eject a single volume using diskutil subprocess
-nonisolated func ejectVolumeWithDiskutilSync(path: String, verbose: Bool = false) -> (success: Bool, error: String?, blockingProcesses: [ProcessInfoOutput]?) {
+nonisolated func ejectVolumeWithDiskutilSync(path: String, unmountOnly: Bool = false, verbose: Bool = false) -> (success: Bool, error: String?, blockingProcesses: [ProcessInfoOutput]?) {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
-    process.arguments = ["eject", path]
+    // Use "unmount" for unmountOnly, "eject" for physical ejection
+    process.arguments = [unmountOnly ? "unmount" : "eject", path]
 
     let pipe = Pipe()
     process.standardOutput = pipe
@@ -331,7 +719,7 @@ nonisolated func ejectVolumeWithDiskutilSync(path: String, verbose: Bool = false
 }
 
 /// Eject all volumes using diskutil subprocess (slow, for comparison)
-func ejectAllVolumesWithDiskutil(verbose: Bool = false) async -> EjectOutput {
+func ejectAllVolumesWithDiskutil(unmountOnly: Bool = false, verbose: Bool = false) async -> EjectOutput {
     let volumes = await getEjectableVolumesLegacy()
     let startTime = Date()
 
@@ -350,7 +738,7 @@ func ejectAllVolumesWithDiskutil(verbose: Bool = false) async -> EjectOutput {
         for volume in volumes {
             group.addTask {
                 let volumeStartTime = Date()
-                let (success, error, blockingProcesses) = ejectVolumeWithDiskutilSync(path: volume.path, verbose: verbose)
+                let (success, error, blockingProcesses) = ejectVolumeWithDiskutilSync(path: volume.path, unmountOnly: unmountOnly, verbose: verbose)
                 let duration = Date().timeIntervalSince(volumeStartTime)
 
                 return EjectResult(
@@ -403,12 +791,12 @@ struct EjectDisks: AsyncParsableCommand {
         commandName: "eject-disks",
         abstract: "Fast disk ejection using native DiskArbitration APIs",
         discussion: """
-            A high-performance tool for ejecting external disks on macOS.
+            A high-performance tool for ejecting and mounting external disks on macOS.
             Uses DADiskUnmount for 10x faster ejection vs diskutil subprocess.
             Includes diagnostics to identify processes blocking disk ejection.
             """,
-        version: "3.0.0",
-        subcommands: [List.self, Count.self, Eject.self, Diagnose.self, Benchmark.self],
+        version: "3.1.0",
+        subcommands: [List.self, Count.self, Eject.self, Mount.self, Diagnose.self, Benchmark.self],
         defaultSubcommand: List.self
     )
 }
@@ -464,13 +852,38 @@ extension EjectDisks {
         @Flag(name: .long, help: "Use diskutil subprocess instead of native API (slower)")
         var useDiskutil = false
 
+        @Flag(name: .long, help: "Unmount only (don't physically eject the device)")
+        var unmountOnly = false
+
         func run() async {
             let output: EjectOutput
             if useDiskutil {
-                output = await ejectAllVolumesWithDiskutil(verbose: verbose)
+                output = await ejectAllVolumesWithDiskutil(unmountOnly: unmountOnly, verbose: verbose)
             } else {
-                output = await ejectAllVolumesNative(force: force, verbose: verbose)
+                output = await ejectAllVolumesNative(force: force, unmountOnly: unmountOnly, verbose: verbose)
             }
+            printJSON(output, compact: compact)
+        }
+    }
+
+    struct Mount: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Mount all unmounted external volumes",
+            discussion: """
+                Discovers and mounts all unmounted external volumes in parallel.
+                Useful for remounting drives after ejection (e.g., in benchmarks).
+                Returns a JSON object with results for each mounted volume.
+                """
+        )
+
+        @Flag(name: .shortAndLong, help: "Output in compact JSON format")
+        var compact = false
+
+        @Flag(name: .shortAndLong, help: "Show detailed debugging information")
+        var verbose = false
+
+        func run() async {
+            let output = await mountAllExternalVolumes(verbose: verbose)
             printJSON(output, compact: compact)
         }
     }

@@ -1,0 +1,19 @@
+{
+  "timestamp": "20260108_154715",
+  "volumeCount": 5,
+  "runsPerMethod": 10,
+  "results": {
+    "native": {
+      "avgTime": 9.9384,
+      "speedup": 1.0
+    },
+    "diskutil": {
+      "avgTime": 7.8755,
+      "speedup": .79
+    },
+    "jettison": {
+      "avgTime": 13.0519,
+      "speedup": 1.31
+    }
+  }
+}
