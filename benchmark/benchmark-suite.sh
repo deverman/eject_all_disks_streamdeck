@@ -243,7 +243,7 @@ remount_volumes() {
 
     # Also remount any real external volumes using mount command
     # (This is needed when benchmarking with both DMGs and real drives)
-    MOUNT_OUTPUT=$($BINARY_CMD mount --compact 2>&1)
+    MOUNT_OUTPUT=$($BINARY_CMD mount --compact --verbose 2>&1)
     if echo "$MOUNT_OUTPUT" | grep -q '"successCount"'; then
         SUCCESS=$(echo "$MOUNT_OUTPUT" | grep -o '"successCount":[0-9]*' | grep -o '[0-9]*')
         if [[ $SUCCESS -gt 0 ]]; then

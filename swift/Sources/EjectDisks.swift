@@ -118,7 +118,7 @@ nonisolated func getDiskInfo(deviceIdentifier: String) -> [String: Any]? {
 }
 
 /// Discover unmounted external volumes using diskutil (optimized for speed)
-func getUnmountedExternalVolumes() async -> [String] {
+func getUnmountedExternalVolumes(verbose: Bool = false) async -> [String] {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
     process.arguments = ["list", "-plist"]
@@ -142,6 +142,10 @@ func getUnmountedExternalVolumes() async -> [String] {
         // Collect all whole disk device identifiers for parallel checking
         let diskIdentifiers = allDisks.compactMap { $0["DeviceIdentifier"] as? String }
 
+        if verbose {
+            FileHandle.standardError.write("DEBUG: Found \(allDisks.count) disks total\n".data(using: .utf8)!)
+        }
+
         // Check all disks in parallel to find which are external (Sendable-safe)
         let externalDiskIds = await withTaskGroup(of: (String, Bool).self, returning: Set<String>.self) { group in
             for identifier in diskIdentifiers {
@@ -161,6 +165,10 @@ func getUnmountedExternalVolumes() async -> [String] {
             return externalIds
         }
 
+        if verbose {
+            FileHandle.standardError.write("DEBUG: Found \(externalDiskIds.count) external disks: \(externalDiskIds)\n".data(using: .utf8)!)
+        }
+
         // Now collect unmounted partitions from external disks
         var unmountedDevices: [String] = []
         for diskInfo in allDisks {
@@ -170,11 +178,22 @@ func getUnmountedExternalVolumes() async -> [String] {
                 continue
             }
 
+            if verbose {
+                FileHandle.standardError.write("DEBUG: Checking partitions on external disk \(deviceId)\n".data(using: .utf8)!)
+            }
+
             for partition in partitions {
                 guard let partDeviceId = partition["DeviceIdentifier"] as? String else { continue }
                 let mountPoint = partition["MountPoint"] as? String
                 let volumeName = partition["VolumeName"] as? String
                 let content = partition["Content"] as? String
+
+                if verbose {
+                    let mpStr = mountPoint ?? "nil"
+                    let vnStr = volumeName ?? "nil"
+                    let ctStr = content ?? "nil"
+                    FileHandle.standardError.write("DEBUG:   Partition \(partDeviceId): MountPoint=\(mpStr), VolumeName=\(vnStr), Content=\(ctStr)\n".data(using: .utf8)!)
+                }
 
                 // Skip system partitions (EFI, Recovery, etc.)
                 let isSystemPartition = content == "EFI" ||
@@ -185,9 +204,22 @@ func getUnmountedExternalVolumes() async -> [String] {
 
                 // Only include unmounted user data volumes
                 if mountPoint == nil, volumeName != nil, !isSystemPartition {
+                    if verbose {
+                        FileHandle.standardError.write("DEBUG:     ✓ ADDED to unmounted list\n".data(using: .utf8)!)
+                    }
                     unmountedDevices.append(partDeviceId)
+                } else {
+                    if verbose {
+                        let reason = mountPoint != nil ? "has MountPoint" : volumeName == nil ? "no VolumeName" : "is system partition"
+                        FileHandle.standardError.write("DEBUG:     ✗ SKIPPED (\(reason))\n".data(using: .utf8)!)
+                    }
                 }
             }
+        }
+
+        if verbose {
+            FileHandle.standardError.write("DEBUG: Total unmounted volumes found: \(unmountedDevices.count)\n".data(using: .utf8)!)
+            FileHandle.standardError.write("DEBUG: Unmounted devices: \(unmountedDevices)\n".data(using: .utf8)!)
         }
 
         return unmountedDevices
@@ -246,9 +278,9 @@ nonisolated func mountVolumeWithDiskutil(device: String) -> (success: Bool, moun
 }
 
 /// Mount all unmounted external volumes
-func mountAllExternalVolumes() async -> MountOutput {
+func mountAllExternalVolumes(verbose: Bool = false) async -> MountOutput {
     let startTime = Date()
-    let devices = await getUnmountedExternalVolumes()
+    let devices = await getUnmountedExternalVolumes(verbose: verbose)
 
     guard !devices.isEmpty else {
         return MountOutput(
@@ -716,8 +748,11 @@ extension EjectDisks {
         @Flag(name: .shortAndLong, help: "Output in compact JSON format")
         var compact = false
 
+        @Flag(name: .shortAndLong, help: "Show detailed debugging information")
+        var verbose = false
+
         func run() async {
-            let output = await mountAllExternalVolumes()
+            let output = await mountAllExternalVolumes(verbose: verbose)
             printJSON(output, compact: compact)
         }
     }
