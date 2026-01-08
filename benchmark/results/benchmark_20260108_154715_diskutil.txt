@@ -1,0 +1,23 @@
+=== WARMUP RUN (not included in averages) ===
+{"failedCount":0,"method":"diskutil","results":[{"duration":2.978551983833313,"success":true,"volume":"Caoshu2"},{"duration":3.640424966812134,"success":true,"volume":"Caoshu1"},{"duration":5.670269966125488,"success":true,"volume":"Kaishu1"},{"duration":6.675217032432556,"success":true,"volume":"Video Files"}],"successCount":4,"totalCount":4,"totalDuration":6.675320029258728}
+---
+{"failedCount":0,"method":"diskutil","results":[{"duration":11.537479043006897,"success":true,"volume":"Video Files"},{"duration":11.949745059013367,"success":true,"volume":"Kaishu1"},{"duration":14.245851039886475,"success":true,"volume":"Caoshu2"},{"duration":15.089058995246887,"success":true,"volume":"Caoshu1"}],"successCount":4,"totalCount":4,"totalDuration":15.089171886444092}
+---
+{"failedCount":0,"method":"diskutil","results":[{"duration":1.1691780090332031,"success":true,"volume":"Video Files"},{"duration":5.380226016044617,"success":true,"volume":"Caoshu2"},{"duration":5.78417694568634,"success":true,"volume":"Caoshu1"},{"duration":7.171934008598328,"success":true,"volume":"Kaishu1"}],"successCount":4,"totalCount":4,"totalDuration":7.172535061836243}
+---
+{"failedCount":0,"method":"diskutil","results":[{"duration":1.2976100444793701,"success":true,"volume":"Video Files"},{"duration":1.8965469598770142,"success":true,"volume":"Caoshu1"},{"duration":4.059977054595947,"success":true,"volume":"Caoshu2"},{"duration":4.293179988861084,"success":true,"volume":"Kaishu1"}],"successCount":4,"totalCount":4,"totalDuration":4.2933429479599}
+---
+{"failedCount":0,"method":"diskutil","results":[{"duration":0.7549450397491455,"success":true,"volume":"Caoshu1"},{"duration":1.720937967300415,"success":true,"volume":"Kaishu1"},{"duration":3.8433120250701904,"success":true,"volume":"Caoshu2"},{"duration":5.809046983718872,"success":true,"volume":"Video Files"}],"successCount":4,"totalCount":4,"totalDuration":5.8091230392456055}
+---
+{"failedCount":0,"method":"diskutil","results":[{"duration":3.918407917022705,"success":true,"volume":"Caoshu2"},{"duration":4.657443046569824,"success":true,"volume":"Caoshu1"},{"duration":6.746929049491882,"success":true,"volume":"Video Files"},{"duration":7.769649982452393,"success":true,"volume":"Kaishu1"}],"successCount":4,"totalCount":4,"totalDuration":7.769749045372009}
+---
+{"failedCount":0,"method":"diskutil","results":[{"duration":11.61509096622467,"success":true,"volume":"Video Files"},{"duration":12.262639999389648,"success":true,"volume":"Caoshu1"},{"duration":13.894093036651611,"success":true,"volume":"Caoshu2"},{"duration":14.760629057884216,"success":true,"volume":"Kaishu1"}],"successCount":4,"totalCount":4,"totalDuration":14.760786056518555}
+---
+{"failedCount":0,"method":"diskutil","results":[{"duration":1.324152946472168,"success":true,"volume":"Video Files"},{"duration":1.8420690298080444,"success":true,"volume":"Kaishu1"},{"duration":5.504737973213196,"success":true,"volume":"Caoshu2"},{"duration":6.072085022926331,"success":true,"volume":"Caoshu1"}],"successCount":4,"totalCount":4,"totalDuration":6.07218599319458}
+---
+{"failedCount":0,"method":"diskutil","results":[{"duration":1.9767359495162964,"success":true,"volume":"Kaishu1"},{"duration":2.3942090272903442,"success":true,"volume":"Caoshu1"},{"duration":3.8558130264282227,"success":true,"volume":"Video Files"},{"duration":6.151126980781555,"success":true,"volume":"Caoshu2"}],"successCount":4,"totalCount":4,"totalDuration":6.15303099155426}
+---
+{"failedCount":0,"method":"diskutil","results":[{"duration":2.296052932739258,"success":true,"volume":"Caoshu2"},{"duration":3.4032610654830933,"success":true,"volume":"Video Files"},{"duration":4.9806519746780396,"success":true,"volume":"Kaishu1"},{"duration":5.296871066093445,"success":true,"volume":"Caoshu1"}],"successCount":4,"totalCount":4,"totalDuration":5.296952962875366}
+---
+{"failedCount":0,"method":"diskutil","results":[{"duration":1.111374020576477,"success":true,"volume":"Kaishu1"},{"duration":2.2571990489959717,"success":true,"volume":"Video Files"},{"duration":3.597914934158325,"success":true,"volume":"Caoshu1"},{"duration":5.806502938270569,"success":true,"volume":"Caoshu2"}],"successCount":4,"totalCount":4,"totalDuration":5.8107969760894775}
+---

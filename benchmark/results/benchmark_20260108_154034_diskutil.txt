@@ -1,0 +1,9 @@
+=== WARMUP RUN (not included in averages) ===
+{"failedCount":0,"method":"diskutil","results":[{"duration":2.879191040992737,"success":true,"volume":"Caoshu2"},{"duration":3.5117589235305786,"success":true,"volume":"Kaishu1"},{"duration":5.035138964653015,"success":true,"volume":"Video Files"},{"duration":5.358652949333191,"success":true,"volume":"Caoshu1"}],"successCount":4,"totalCount":4,"totalDuration":5.358767032623291}
+---
+{"failedCount":0,"method":"diskutil","results":[{"duration":0.2911210060119629,"success":true,"volume":"Kaishu1"},{"duration":1.7554069757461548,"success":true,"volume":"Caoshu2"},{"duration":2.613072991371155,"success":true,"volume":"Video Files"},{"duration":2.9717020988464355,"success":true,"volume":"Caoshu1"}],"successCount":4,"totalCount":4,"totalDuration":2.9718410968780518}
+---
+{"failedCount":0,"method":"diskutil","results":[{"duration":1.1181139945983887,"success":true,"volume":"Video Files"},{"duration":1.6627240180969238,"success":true,"volume":"Kaishu1"},{"duration":5.961206912994385,"success":true,"volume":"Caoshu2"},{"duration":6.441184043884277,"success":true,"volume":"Caoshu1"}],"successCount":4,"totalCount":4,"totalDuration":6.441267013549805}
+---
+{"failedCount":0,"method":"diskutil","results":[{"duration":0.4111330509185791,"success":true,"volume":"Caoshu1"},{"duration":1.7020820379257202,"success":true,"volume":"Video Files"},{"duration":2.183429002761841,"success":true,"volume":"Kaishu1"},{"duration":7.329833030700684,"success":true,"volume":"Caoshu2"}],"successCount":4,"totalCount":4,"totalDuration":7.329957962036133}
+---

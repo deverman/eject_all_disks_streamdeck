@@ -1,0 +1,43 @@
+=== WARMUP RUN (not included in averages) ===
+[SwiftDiskArbitration] Using DADiskUnmount for Caoshu2
+[SwiftDiskArbitration] Using DADiskUnmount for Video Files
+[SwiftDiskArbitration] Using DADiskUnmount for LaCie
+[SwiftDiskArbitration] Using DADiskUnmount for Kaishu1
+[SwiftDiskArbitration] Using DADiskUnmount for Caoshu1
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=0.4535s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=0.8654s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=0.9991s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=1.0783s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=1.9754s
+{"failedCount":0,"method":"native","results":[{"duration":0.4534730911254883,"success":true,"volume":"Kaishu1"},{"duration":0.865399956703186,"success":true,"volume":"Caoshu1"},{"duration":0.9991400241851807,"success":true,"volume":"Caoshu2"},{"duration":1.0783480405807495,"success":true,"volume":"Video Files"},{"duration":1.9753999710083008,"success":true,"volume":"LaCie"}],"successCount":5,"totalCount":5,"totalDuration":1.975695013999939}
+---
+[SwiftDiskArbitration] Using DADiskUnmount for Video Files
+[SwiftDiskArbitration] Using DADiskUnmount for Caoshu2
+[SwiftDiskArbitration] Using DADiskUnmount for Caoshu1
+[SwiftDiskArbitration] Using DADiskUnmount for Kaishu1
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=3.5543s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=3.9264s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=4.0350s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=4.0748s
+{"failedCount":0,"method":"native","results":[{"duration":3.554273009300232,"success":true,"volume":"Kaishu1"},{"duration":3.9264070987701416,"success":true,"volume":"Caoshu1"},{"duration":4.03500509262085,"success":true,"volume":"Caoshu2"},{"duration":4.074829936027527,"success":true,"volume":"Video Files"}],"successCount":4,"totalCount":4,"totalDuration":4.075080037117004}
+---
+[SwiftDiskArbitration] Using DADiskUnmount for Caoshu2
+[SwiftDiskArbitration] Using DADiskUnmount for Video Files
+[SwiftDiskArbitration] Using DADiskUnmount for Caoshu1
+[SwiftDiskArbitration] Using DADiskUnmount for Kaishu1
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=7.5003s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=7.5005s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=7.8947s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=8.1521s
+{"failedCount":0,"method":"native","results":[{"duration":7.500262975692749,"success":true,"volume":"Caoshu1"},{"duration":7.500525951385498,"success":true,"volume":"Kaishu1"},{"duration":7.894729018211365,"success":true,"volume":"Caoshu2"},{"duration":8.152149081230164,"success":true,"volume":"Video Files"}],"successCount":4,"totalCount":4,"totalDuration":8.153470993041992}
+---
+[SwiftDiskArbitration] Using DADiskUnmount for Kaishu1
+[SwiftDiskArbitration] Using DADiskUnmount for Video Files
+[SwiftDiskArbitration] Using DADiskUnmount for Caoshu2
+[SwiftDiskArbitration] Using DADiskUnmount for Caoshu1
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=0.1131s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=0.6256s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=1.4499s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=1.8336s
+{"failedCount":0,"method":"native","results":[{"duration":0.11313891410827637,"success":true,"volume":"Kaishu1"},{"duration":0.6256400346755981,"success":true,"volume":"Video Files"},{"duration":1.4499009847640991,"success":true,"volume":"Caoshu1"},{"duration":1.8336429595947266,"success":true,"volume":"Caoshu2"}],"successCount":4,"totalCount":4,"totalDuration":1.8459020853042603}
+---

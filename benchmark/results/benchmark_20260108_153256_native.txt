@@ -1,0 +1,99 @@
+=== WARMUP RUN (not included in averages) ===
+[SwiftDiskArbitration] Using DADiskUnmount for Kaishu1
+[SwiftDiskArbitration] Using DADiskUnmount for Video Files
+[SwiftDiskArbitration] Using DADiskUnmount for Caoshu1
+[SwiftDiskArbitration] Using DADiskUnmount for TestDisk3
+[SwiftDiskArbitration] Using DADiskUnmount for LaCie
+[SwiftDiskArbitration] Using DADiskUnmount for TestDisk1
+[SwiftDiskArbitration] Using DADiskUnmount for Caoshu2
+[SwiftDiskArbitration] Using DADiskUnmount for TestDisk2
+[SwiftDiskArbitration] unmountCallback: dissenter status=0x-725fff7, message=nil, duration=0.0031s
+[SwiftDiskArbitration] unmountCallback: dissenter status=0x-725fff7, message=nil, duration=0.0034s
+[SwiftDiskArbitration] unmountCallback: dissenter status=0x-725fff7, message=nil, duration=0.0038s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=10.7491s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=10.7491s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=10.7492s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=11.0009s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=11.2173s
+{"failedCount":3,"method":"native","results":[{"duration":0.0030570030212402344,"error":"Not privileged: Requires administrator privileges","success":false,"volume":"TestDisk3"},{"duration":0.0033739805221557617,"error":"Not privileged: Requires administrator privileges","success":false,"volume":"TestDisk1"},{"duration":0.003832101821899414,"error":"Not privileged: Requires administrator privileges","success":false,"volume":"TestDisk2"},{"duration":10.74905002117157,"success":true,"volume":"Video Files"},{"duration":10.74914801120758,"success":true,"volume":"Caoshu1"},{"duration":10.749173998832703,"success":true,"volume":"Kaishu1"},{"duration":11.000869989395142,"success":true,"volume":"Caoshu2"},{"duration":11.217334032058716,"success":true,"volume":"LaCie"}],"successCount":5,"totalCount":8,"totalDuration":11.217858910560608}
+---
+[SwiftDiskArbitration] Using DADiskUnmount for Caoshu1
+[SwiftDiskArbitration] Using DADiskUnmount for TestDisk3
+[SwiftDiskArbitration] Using DADiskUnmount for Video Files
+[SwiftDiskArbitration] Using DADiskUnmount for Caoshu2
+[SwiftDiskArbitration] Using DADiskUnmount for TestDisk1
+[SwiftDiskArbitration] Using DADiskUnmount for Kaishu1
+[SwiftDiskArbitration] Using DADiskUnmount for TestDisk2
+[SwiftDiskArbitration] unmountCallback: dissenter status=0x-725fff7, message=nil, duration=0.0468s
+[SwiftDiskArbitration] unmountCallback: dissenter status=0x-725fff7, message=nil, duration=0.0475s
+[SwiftDiskArbitration] unmountCallback: dissenter status=0x-725fff7, message=nil, duration=0.0481s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=11.0114s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=11.0116s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=11.2411s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=11.4862s
+{"failedCount":3,"method":"native","results":[{"duration":0.04682493209838867,"error":"Not privileged: Requires administrator privileges","success":false,"volume":"TestDisk3"},{"duration":0.047515034675598145,"error":"Not privileged: Requires administrator privileges","success":false,"volume":"TestDisk1"},{"duration":0.04806697368621826,"error":"Not privileged: Requires administrator privileges","success":false,"volume":"TestDisk2"},{"duration":11.011404037475586,"success":true,"volume":"Kaishu1"},{"duration":11.011649012565613,"success":true,"volume":"Caoshu1"},{"duration":11.241070985794067,"success":true,"volume":"Caoshu2"},{"duration":11.4862220287323,"success":true,"volume":"Video Files"}],"successCount":4,"totalCount":7,"totalDuration":11.486595034599304}
+---
+[SwiftDiskArbitration] Using DADiskUnmount for Caoshu2
+[SwiftDiskArbitration] Using DADiskUnmount for Caoshu1
+[SwiftDiskArbitration] Using DADiskUnmount for TestDisk2
+[SwiftDiskArbitration] Using DADiskUnmount for Video Files
+[SwiftDiskArbitration] Using DADiskUnmount for Kaishu1
+[SwiftDiskArbitration] Using DADiskUnmount for TestDisk3
+[SwiftDiskArbitration] Using DADiskUnmount for TestDisk1
+[SwiftDiskArbitration] unmountCallback: dissenter status=0x-725fff7, message=nil, duration=0.0451s
+[SwiftDiskArbitration] unmountCallback: dissenter status=0x-725fff7, message=nil, duration=0.0453s
+[SwiftDiskArbitration] unmountCallback: dissenter status=0x-725fff7, message=nil, duration=0.0460s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=10.3361s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=10.3514s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=10.5614s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=11.0238s
+{"failedCount":3,"method":"native","results":[{"duration":0.04505205154418945,"error":"Not privileged: Requires administrator privileges","success":false,"volume":"TestDisk2"},{"duration":0.04528796672821045,"error":"Not privileged: Requires administrator privileges","success":false,"volume":"TestDisk3"},{"duration":0.046005964279174805,"error":"Not privileged: Requires administrator privileges","success":false,"volume":"TestDisk1"},{"duration":10.336145997047424,"success":true,"volume":"Caoshu1"},{"duration":10.351446986198425,"success":true,"volume":"Kaishu1"},{"duration":10.561447024345398,"success":true,"volume":"Caoshu2"},{"duration":11.02376902103424,"success":true,"volume":"Video Files"}],"successCount":4,"totalCount":7,"totalDuration":11.02400803565979}
+---
+[SwiftDiskArbitration] Using DADiskUnmount for Caoshu1
+[SwiftDiskArbitration] Using DADiskUnmount for TestDisk2
+[SwiftDiskArbitration] Using DADiskUnmount for Video Files
+[SwiftDiskArbitration] Using DADiskUnmount for Kaishu1
+[SwiftDiskArbitration] Using DADiskUnmount for TestDisk3
+[SwiftDiskArbitration] Using DADiskUnmount for TestDisk1
+[SwiftDiskArbitration] Using DADiskUnmount for Caoshu2
+[SwiftDiskArbitration] unmountCallback: dissenter status=0x-725fff7, message=nil, duration=0.0478s
+[SwiftDiskArbitration] unmountCallback: dissenter status=0x-725fff7, message=nil, duration=0.0482s
+[SwiftDiskArbitration] unmountCallback: dissenter status=0x-725fff7, message=nil, duration=0.0486s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=10.5117s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=10.5118s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=10.6994s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=11.0966s
+{"failedCount":3,"method":"native","results":[{"duration":0.04781508445739746,"error":"Not privileged: Requires administrator privileges","success":false,"volume":"TestDisk2"},{"duration":0.048184990882873535,"error":"Not privileged: Requires administrator privileges","success":false,"volume":"TestDisk1"},{"duration":0.04856991767883301,"error":"Not privileged: Requires administrator privileges","success":false,"volume":"TestDisk3"},{"duration":10.51167094707489,"success":true,"volume":"Kaishu1"},{"duration":10.511827945709229,"success":true,"volume":"Caoshu1"},{"duration":10.699409008026123,"success":true,"volume":"Caoshu2"},{"duration":11.096570014953613,"success":true,"volume":"Video Files"}],"successCount":4,"totalCount":7,"totalDuration":11.096817970275879}
+---
+[SwiftDiskArbitration] Using DADiskUnmount for Video Files
+[SwiftDiskArbitration] Using DADiskUnmount for Kaishu1
+[SwiftDiskArbitration] Using DADiskUnmount for Caoshu1
+[SwiftDiskArbitration] Using DADiskUnmount for TestDisk3
+[SwiftDiskArbitration] Using DADiskUnmount for TestDisk1
+[SwiftDiskArbitration] Using DADiskUnmount for TestDisk2
+[SwiftDiskArbitration] Using DADiskUnmount for Caoshu2
+[SwiftDiskArbitration] unmountCallback: dissenter status=0x-725fff7, message=nil, duration=0.0970s
+[SwiftDiskArbitration] unmountCallback: dissenter status=0x-725fff7, message=nil, duration=0.0978s
+[SwiftDiskArbitration] unmountCallback: dissenter status=0x-725fff7, message=nil, duration=0.0985s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=0.4595s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=0.5019s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=0.8478s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=1.4282s
+{"failedCount":3,"method":"native","results":[{"duration":0.09699094295501709,"error":"Not privileged: Requires administrator privileges","success":false,"volume":"TestDisk3"},{"duration":0.09778201580047607,"error":"Not privileged: Requires administrator privileges","success":false,"volume":"TestDisk1"},{"duration":0.0985039472579956,"error":"Not privileged: Requires administrator privileges","success":false,"volume":"TestDisk2"},{"duration":0.45945000648498535,"success":true,"volume":"Kaishu1"},{"duration":0.5019470453262329,"success":true,"volume":"Caoshu1"},{"duration":0.8478341102600098,"success":true,"volume":"Caoshu2"},{"duration":1.4281610250473022,"success":true,"volume":"Video Files"}],"successCount":4,"totalCount":7,"totalDuration":1.4283939599990845}
+---
+[SwiftDiskArbitration] Using DADiskUnmount for Caoshu2
+[SwiftDiskArbitration] Using DADiskUnmount for TestDisk3
+[SwiftDiskArbitration] Using DADiskUnmount for TestDisk2
+[SwiftDiskArbitration] Using DADiskUnmount for Caoshu1
+[SwiftDiskArbitration] Using DADiskUnmount for Video Files
+[SwiftDiskArbitration] Using DADiskUnmount for Kaishu1
+[SwiftDiskArbitration] Using DADiskUnmount for TestDisk1
+[SwiftDiskArbitration] unmountCallback: dissenter status=0x-725fff7, message=nil, duration=0.0498s
+[SwiftDiskArbitration] unmountCallback: dissenter status=0x-725fff7, message=nil, duration=0.0501s
+[SwiftDiskArbitration] unmountCallback: dissenter status=0x-725fff7, message=nil, duration=0.0503s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=10.5254s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=10.5255s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=10.8388s
+[SwiftDiskArbitration] unmountCallback: success (no dissenter), duration=11.1959s
+{"failedCount":3,"method":"native","results":[{"duration":0.04975903034210205,"error":"Not privileged: Requires administrator privileges","success":false,"volume":"TestDisk3"},{"duration":0.050064921379089355,"error":"Not privileged: Requires administrator privileges","success":false,"volume":"TestDisk2"},{"duration":0.05029404163360596,"error":"Not privileged: Requires administrator privileges","success":false,"volume":"TestDisk1"},{"duration":10.525429010391235,"success":true,"volume":"Caoshu1"},{"duration":10.525469899177551,"success":true,"volume":"Kaishu1"},{"duration":10.838796973228455,"success":true,"volume":"Caoshu2"},{"duration":11.19590699672699,"success":true,"volume":"Video Files"}],"successCount":4,"totalCount":7,"totalDuration":11.196215987205505}
+---
