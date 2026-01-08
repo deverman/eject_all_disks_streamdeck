@@ -173,45 +173,86 @@ func getUnmountedExternalVolumes(verbose: Bool = false) async -> [String] {
         var unmountedDevices: [String] = []
         for diskInfo in allDisks {
             guard let deviceId = diskInfo["DeviceIdentifier"] as? String,
-                  externalDiskIds.contains(deviceId),
-                  let partitions = diskInfo["Partitions"] as? [[String: Any]] else {
+                  externalDiskIds.contains(deviceId) else {
                 continue
             }
 
             if verbose {
-                FileHandle.standardError.write("DEBUG: Checking partitions on external disk \(deviceId)\n".data(using: .utf8)!)
+                FileHandle.standardError.write("DEBUG: Checking disk \(deviceId)\n".data(using: .utf8)!)
             }
 
-            for partition in partitions {
-                guard let partDeviceId = partition["DeviceIdentifier"] as? String else { continue }
-                let mountPoint = partition["MountPoint"] as? String
-                let volumeName = partition["VolumeName"] as? String
-                let content = partition["Content"] as? String
+            // Check regular partitions
+            if let partitions = diskInfo["Partitions"] as? [[String: Any]] {
+                for partition in partitions {
+                    guard let partDeviceId = partition["DeviceIdentifier"] as? String else { continue }
+                    let mountPoint = partition["MountPoint"] as? String
+                    let volumeName = partition["VolumeName"] as? String
+                    let content = partition["Content"] as? String
 
-                if verbose {
-                    let mpStr = mountPoint ?? "nil"
-                    let vnStr = volumeName ?? "nil"
-                    let ctStr = content ?? "nil"
-                    FileHandle.standardError.write("DEBUG:   Partition \(partDeviceId): MountPoint=\(mpStr), VolumeName=\(vnStr), Content=\(ctStr)\n".data(using: .utf8)!)
-                }
-
-                // Skip system partitions (EFI, Recovery, etc.)
-                let isSystemPartition = content == "EFI" ||
-                                       content == "Apple_Boot" ||
-                                       content == "Apple_APFS_Recovery" ||
-                                       volumeName == "EFI" ||
-                                       volumeName == "Recovery"
-
-                // Only include unmounted user data volumes
-                if mountPoint == nil, volumeName != nil, !isSystemPartition {
                     if verbose {
-                        FileHandle.standardError.write("DEBUG:     ✓ ADDED to unmounted list\n".data(using: .utf8)!)
+                        let mpStr = mountPoint ?? "nil"
+                        let vnStr = volumeName ?? "nil"
+                        let ctStr = content ?? "nil"
+                        FileHandle.standardError.write("DEBUG:   Partition \(partDeviceId): MountPoint=\(mpStr), VolumeName=\(vnStr), Content=\(ctStr)\n".data(using: .utf8)!)
                     }
-                    unmountedDevices.append(partDeviceId)
-                } else {
-                    if verbose {
-                        let reason = mountPoint != nil ? "has MountPoint" : volumeName == nil ? "no VolumeName" : "is system partition"
-                        FileHandle.standardError.write("DEBUG:     ✗ SKIPPED (\(reason))\n".data(using: .utf8)!)
+
+                    // Check if this partition is an APFS container with volumes
+                    if content == "Apple_APFS", let apfsVolumes = partition["APFSVolumes"] as? [[String: Any]] {
+                        if verbose {
+                            FileHandle.standardError.write("DEBUG:     Found APFS container with \(apfsVolumes.count) volumes\n".data(using: .utf8)!)
+                        }
+
+                        for apfsVolume in apfsVolumes {
+                            guard let apfsDeviceId = apfsVolume["DeviceIdentifier"] as? String else { continue }
+                            let apfsMountPoint = apfsVolume["MountPoint"] as? String
+                            let apfsVolumeName = apfsVolume["VolumeName"] as? String
+
+                            if verbose {
+                                let mpStr = apfsMountPoint ?? "nil"
+                                let vnStr = apfsVolumeName ?? "nil"
+                                FileHandle.standardError.write("DEBUG:       APFS Volume \(apfsDeviceId): MountPoint=\(mpStr), VolumeName=\(vnStr)\n".data(using: .utf8)!)
+                            }
+
+                            // Skip system volumes (no name or system role)
+                            guard let volName = apfsVolumeName, !volName.isEmpty else {
+                                if verbose {
+                                    FileHandle.standardError.write("DEBUG:         ✗ SKIPPED (no VolumeName)\n".data(using: .utf8)!)
+                                }
+                                continue
+                            }
+
+                            // Only include unmounted volumes
+                            if apfsMountPoint == nil {
+                                if verbose {
+                                    FileHandle.standardError.write("DEBUG:         ✓ ADDED to unmounted list\n".data(using: .utf8)!)
+                                }
+                                unmountedDevices.append(apfsDeviceId)
+                            } else {
+                                if verbose {
+                                    FileHandle.standardError.write("DEBUG:         ✗ SKIPPED (has MountPoint)\n".data(using: .utf8)!)
+                                }
+                            }
+                        }
+                    } else {
+                        // Regular HFS+/ExFAT/etc partition
+                        let isSystemPartition = content == "EFI" ||
+                                               content == "Apple_Boot" ||
+                                               content == "Apple_APFS_Recovery" ||
+                                               volumeName == "EFI" ||
+                                               volumeName == "Recovery"
+
+                        // Only include unmounted user data volumes
+                        if mountPoint == nil, volumeName != nil, !isSystemPartition {
+                            if verbose {
+                                FileHandle.standardError.write("DEBUG:     ✓ ADDED to unmounted list\n".data(using: .utf8)!)
+                            }
+                            unmountedDevices.append(partDeviceId)
+                        } else {
+                            if verbose {
+                                let reason = mountPoint != nil ? "has MountPoint" : volumeName == nil ? "no VolumeName" : "is system partition"
+                                FileHandle.standardError.write("DEBUG:     ✗ SKIPPED (\(reason))\n".data(using: .utf8)!)
+                            }
+                        }
                     }
                 }
             }
