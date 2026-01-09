@@ -8,7 +8,6 @@
 import Testing
 import Foundation
 import SwiftDiskArbitration
-@testable import EjectAllDisksPlugin
 
 @Suite("DiskArbitration Integration Tests")
 struct DiskArbitrationIntegrationTests {
@@ -28,7 +27,7 @@ struct DiskArbitrationIntegrationTests {
     }
 
     @Test("Multiple sessions can coexist")
-    func multipleSessions() throws {
+    func multipleSessions() async throws {
         let session1 = try DiskSession()
         let session2 = try DiskSession()
 
@@ -45,7 +44,6 @@ struct DiskArbitrationIntegrationTests {
         let session = DiskSession.shared
         let count = await session.ejectableVolumeCount()
 
-        // Count should be non-negative
         #expect(count >= 0)
     }
 
@@ -54,10 +52,8 @@ struct DiskArbitrationIntegrationTests {
         let session = DiskSession.shared
         let volumes = await session.enumerateEjectableVolumes()
 
-        // Should return an array (possibly empty)
         #expect(volumes.count >= 0)
 
-        // Each volume should have valid info
         for volume in volumes {
             #expect(!volume.info.name.isEmpty, "Volume name should not be empty")
             #expect(volume.info.path.hasPrefix("/Volumes/"), "Volume path should start with /Volumes/")
@@ -71,7 +67,7 @@ struct DiskArbitrationIntegrationTests {
         let count = await session.ejectableVolumeCount()
         let volumes = await session.enumerateEjectableVolumes()
 
-        #expect(count == volumes.count, "Count should match enumerated volumes")
+        #expect(count == volumes.count)
     }
 
     // MARK: - Eject Options
@@ -80,24 +76,24 @@ struct DiskArbitrationIntegrationTests {
     func defaultEjectOptions() {
         let options = EjectOptions.default
 
-        #expect(!options.force, "Default should not force eject")
-        #expect(options.ejectPhysicalDevice, "Default should eject physical device")
+        #expect(!options.force)
+        #expect(options.ejectPhysicalDevice)
     }
 
     @Test("Unmount-only options are correct")
     func unmountOnlyOptions() {
         let options = EjectOptions.unmountOnly
 
-        #expect(!options.force, "Unmount-only should not force")
-        #expect(!options.ejectPhysicalDevice, "Unmount-only should not eject physical device")
+        #expect(!options.force)
+        #expect(!options.ejectPhysicalDevice)
     }
 
     @Test("Force eject options are correct")
     func forceEjectOptions() {
         let options = EjectOptions.forceEject
 
-        #expect(options.force, "Force eject should have force=true")
-        #expect(options.ejectPhysicalDevice, "Force eject should eject physical device")
+        #expect(options.force)
+        #expect(options.ejectPhysicalDevice)
     }
 
     // MARK: - Empty Batch Handling
@@ -121,7 +117,6 @@ struct DiskArbitrationIntegrationTests {
         let session = try DiskSession()
         let result = await session.ejectAll([], options: .default)
 
-        // Verify all properties are accessible
         _ = result.totalCount
         _ = result.successCount
         _ = result.failedCount
@@ -153,61 +148,17 @@ struct DiskArbitrationIntegrationTests {
         #expect(decoded.errorMessage == result.errorMessage)
         #expect(decoded.duration == result.duration)
     }
-
-    @Test("Failed SingleEjectResult includes error message")
-    func failedResultMessage() throws {
-        let result = SingleEjectResult(
-            volumeName: "Busy Drive",
-            volumePath: "/Volumes/Busy Drive",
-            success: false,
-            errorMessage: "Resource busy",
-            duration: 0.01
-        )
-
-        let encoder = JSONEncoder()
-        let data = try encoder.encode(result)
-        let json = String(data: data, encoding: .utf8)!
-
-        #expect(json.contains("Resource busy"))
-        #expect(json.contains("\"success\":false") || json.contains("\"success\": false"))
-    }
 }
 
-@Suite("Plugin Component Integration Tests")
-struct PluginComponentIntegrationTests {
-
-    // MARK: - Icon Generation with Real Data
-
-    @Test("Icon updates with real disk count")
-    func iconWithRealDiskCount() async {
-        let session = DiskSession.shared
-        let count = await session.ejectableVolumeCount()
-
-        let svg = IconGenerator.createNormalSvgRaw(count: count)
-
-        #expect(svg.contains("<svg"))
-        if count > 0 {
-            #expect(svg.contains(">\(count)</text>"))
-        }
-    }
-
-    // MARK: - Performance Tests
+@Suite("Performance Tests")
+struct PerformanceTests {
 
     @Test("Volume count is fast", .timeLimit(.seconds(1)))
     func volumeCountPerformance() async {
         let session = DiskSession.shared
 
-        // Should complete well within 1 second
         for _ in 0..<10 {
             _ = await session.ejectableVolumeCount()
-        }
-    }
-
-    @Test("Icon generation is fast", .timeLimit(.seconds(1)))
-    func iconGenerationPerformance() {
-        // Generate many icons quickly
-        for i in 0..<100 {
-            _ = IconGenerator.createNormalSvg(count: i % 10)
         }
     }
 
@@ -223,8 +174,6 @@ struct PluginComponentIntegrationTests {
 
 @Suite("Real Hardware Tests", .disabled("Requires external volumes"))
 struct RealHardwareTests {
-    // These tests require actual external volumes and are disabled by default
-    // Enable and run manually when testing with real hardware
 
     @Test("Can eject real external volume")
     func ejectRealVolume() async throws {
@@ -244,8 +193,6 @@ struct RealHardwareTests {
             print("Error: \(error)")
         }
 
-        // We can't guarantee success (volume might be in use)
-        // but the operation should complete
         #expect(result.duration >= 0)
     }
 
@@ -265,15 +212,6 @@ struct RealHardwareTests {
         print("Batch result: \(result.successCount)/\(result.totalCount) succeeded")
         print("Duration: \(result.totalDuration)s")
 
-        for singleResult in result.results {
-            let status = singleResult.success ? "OK" : "FAIL"
-            print("  [\(status)] \(singleResult.volumeName)")
-            if let error = singleResult.errorMessage {
-                print("       Error: \(error)")
-            }
-        }
-
-        // Verify counts are consistent
         #expect(result.totalCount == volumes.count)
         #expect(result.successCount + result.failedCount == result.totalCount)
     }

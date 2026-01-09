@@ -1,6 +1,6 @@
 {
     "Name": "Eject All Disks",
-    "Version": "2.0.2.0",
+    "Version": "3.0.0",
     "Author": "Brent Deverman",
     "Actions": [
         {
@@ -23,7 +23,7 @@
     ],
     "Category": "Eject All Disks",
     "CategoryIcon": "imgs/plugin/category-icon",
-    "CodePath": "bin/plugin.js",
+    "CodePath": "bin/org.deverman.ejectalldisks",
     "Description": "Ejects all external hard disks",
     "Icon": "imgs/plugin/marketplace",
     "SDKVersion": 2,
@@ -36,8 +36,5 @@
             "MinimumVersion": "12"
         }
     ],
-    "Nodejs": {
-        "Version": "20"
-    },
     "UUID": "org.deverman.ejectalldisks"
 }

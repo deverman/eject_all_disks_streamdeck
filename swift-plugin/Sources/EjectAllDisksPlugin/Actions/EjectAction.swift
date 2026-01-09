@@ -3,7 +3,7 @@
 //  EjectAllDisksPlugin
 //
 //  Stream Deck action for ejecting all external disks.
-//  Handles key events, icon updates, and eject operations.
+//  Uses static SVG resources and SwiftDiskArbitration for disk operations.
 //
 
 import Foundation
@@ -12,10 +12,10 @@ import SwiftDiskArbitration
 import os.log
 
 /// Logger for action events
-private let actionLog = Logger(subsystem: "org.deverman.ejectalldisks", category: "action")
+private let log = Logger(subsystem: "org.deverman.ejectalldisks", category: "action")
 
 /// Settings for the Eject action
-struct EjectActionSettings: Codable, Hashable {
+struct EjectActionSettings: Codable, Hashable, Sendable {
     /// Whether to show the title on the button
     var showTitle: Bool = true
 }
@@ -39,6 +39,15 @@ struct EjectAction: KeyAction {
         )
     ]
 
+    // MARK: - Static Image Paths
+
+    private enum Images {
+        static let normal = "imgs/actions/eject/state"
+        static let ejecting = "imgs/actions/eject/ejecting"
+        static let success = "imgs/actions/eject/success"
+        static let error = "imgs/actions/eject/error"
+    }
+
     // MARK: - Instance Properties
 
     var context: String
@@ -60,45 +69,41 @@ struct EjectAction: KeyAction {
     // MARK: - Lifecycle Events
 
     func willAppear(device: String, payload: AppearEvent<Settings>) {
-        actionLog.info("Action appeared on device \(device)")
+        log.info("Action appeared on device \(device)")
 
-        // Set initial title based on settings
         let showTitle = payload.settings?.showTitle ?? true
-        setTitle(showTitle ? "Eject All\nDisks" : "")
-
-        // Update icon with current disk count
-        updateIconWithCount(diskCount)
+        updateDisplay(showTitle: showTitle)
     }
 
     func willDisappear(device: String, payload: AppearEvent<Settings>) {
-        actionLog.info("Action disappeared from device \(device)")
+        log.info("Action disappeared from device \(device)")
     }
 
     // MARK: - Settings Events
 
     func didReceiveSettings(device: String, payload: SettingsEvent<Settings>.Payload) {
         let showTitle = payload.settings.showTitle
-        setTitle(showTitle ? "Eject All\nDisks" : "")
-        actionLog.debug("Settings updated: showTitle=\(showTitle)")
+        updateDisplay(showTitle: showTitle)
+        log.debug("Settings updated: showTitle=\(showTitle)")
     }
 
     func didReceiveGlobalSettings() {
-        // Update icon when global disk count changes
-        updateIconWithCount(diskCount)
+        // Update title when global disk count changes
+        let showTitle = true // Default, actual value comes from settings
+        updateDisplay(showTitle: showTitle)
     }
 
     // MARK: - Key Events
 
     func keyDown(device: String, payload: KeyEvent<Settings>) {
-        actionLog.info("Key down - starting eject operation")
+        log.info("Key down - starting eject operation")
 
         // Prevent multiple simultaneous eject operations
         guard !isEjecting else {
-            actionLog.warning("Eject already in progress, ignoring key press")
+            log.warning("Eject already in progress, ignoring key press")
             return
         }
 
-        // Get current settings
         let showTitle = payload.settings.showTitle
 
         // Start async eject operation
@@ -118,101 +123,76 @@ struct EjectAction: KeyAction {
     private func performEject(showTitle: Bool) async {
         isEjecting = true
 
-        // Show ejecting icon
-        setImage(to: IconGenerator.createEjectingSvg())
+        // Show ejecting state
+        setImage(to: Images.ejecting)
         setTitle(showTitle ? "Ejecting..." : "")
 
         do {
-            // Create a session for the eject operation
             let session = try DiskSession()
             let volumes = await session.enumerateEjectableVolumes()
 
             if volumes.isEmpty {
-                // No disks to eject
-                actionLog.info("No disks to eject")
-                setImage(to: IconGenerator.createSuccessSvg())
+                log.info("No disks to eject")
+                setImage(to: Images.success)
                 setTitle(showTitle ? "No Disks" : "")
                 showOk()
             } else {
-                // Perform the eject operation
-                actionLog.info("Ejecting \(volumes.count) volume(s)")
+                log.info("Ejecting \(volumes.count) volume(s)")
                 let result = await session.ejectAll(volumes, options: .default)
 
-                // Log results
-                actionLog.info("Eject completed: \(result.successCount)/\(result.totalCount) succeeded")
-                for singleResult in result.results {
-                    if singleResult.success {
-                        actionLog.debug("  [OK] \(singleResult.volumeName)")
-                    } else {
-                        actionLog.error("  [FAIL] \(singleResult.volumeName): \(singleResult.errorMessage ?? "Unknown error")")
-                    }
-                }
+                logResults(result)
 
-                // Show result
                 if result.failedCount == 0 {
-                    // All succeeded
-                    setImage(to: IconGenerator.createSuccessSvg())
+                    setImage(to: Images.success)
                     setTitle(showTitle ? "Ejected!" : "")
                     showOk()
-                } else if result.successCount > 0 {
-                    // Partial success
-                    setImage(to: IconGenerator.createErrorSvg())
-                    setTitle(showTitle ? "Partial" : "")
-                    showAlert()
                 } else {
-                    // All failed
-                    setImage(to: IconGenerator.createErrorSvg())
-                    setTitle(showTitle ? "Error!" : "")
+                    setImage(to: Images.error)
+                    setTitle(showTitle ? "Error" : "")
                     showAlert()
                 }
             }
         } catch {
-            // Session creation failed
-            actionLog.error("Failed to create DiskSession: \(error.localizedDescription)")
-            setImage(to: IconGenerator.createErrorSvg())
-            setTitle(showTitle ? "Failed!" : "")
+            log.error("Failed to create DiskSession: \(error.localizedDescription)")
+            setImage(to: Images.error)
+            setTitle(showTitle ? "Failed" : "")
             showAlert()
         }
 
         // Reset display after delay
         try? await Task.sleep(for: .seconds(2))
 
-        // Reset to normal state
         isEjecting = false
-        setTitle(showTitle ? "Eject All\nDisks" : "")
-        updateIconWithCount(diskCount)
-
-        actionLog.info("Display reset to normal state")
+        updateDisplay(showTitle: showTitle)
+        log.info("Display reset to normal state")
     }
 
-    // MARK: - Icon Updates
+    // MARK: - Display Updates
 
-    /// Updates the button icon with the current disk count
-    private func updateIconWithCount(_ count: Int) {
-        let svg = IconGenerator.createNormalSvg(count: count)
-        setImage(to: svg)
+    /// Updates the display with current state
+    private func updateDisplay(showTitle: Bool) {
+        setImage(to: Images.normal)
+
+        if showTitle {
+            if diskCount > 0 {
+                setTitle("\(diskCount) Disk\(diskCount == 1 ? "" : "s")")
+            } else {
+                setTitle("Eject All\nDisks")
+            }
+        } else {
+            setTitle("")
+        }
     }
-}
 
-// MARK: - Property Inspector Communication
-
-extension EjectAction {
-
-    func sendToPlugin(context: String, payload: [String: Any]) {
-        actionLog.debug("Received message from Property Inspector: \(payload)")
-
-        // Handle setup status check
-        if payload["checkSetupStatus"] != nil {
-            // With native Swift plugin, sudo configuration is not typically needed
-            // as the plugin runs with user permissions
-            let response: [String: Any] = [
-                "setupStatus": [
-                    "configured": true,
-                    "setupCommand": "No setup required for native plugin"
-                ]
-            ]
-            sendToPropertyInspector(payload: response)
-            actionLog.info("Sent setup status to Property Inspector")
+    /// Logs eject results for debugging
+    private func logResults(_ result: BatchEjectResult) {
+        log.info("Eject completed: \(result.successCount)/\(result.totalCount) succeeded")
+        for singleResult in result.results {
+            if singleResult.success {
+                log.debug("  [OK] \(singleResult.volumeName)")
+            } else {
+                log.error("  [FAIL] \(singleResult.volumeName): \(singleResult.errorMessage ?? "Unknown error")")
+            }
         }
     }
 }

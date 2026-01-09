@@ -46,12 +46,6 @@ struct PluginMetadataTests {
         #expect(EjectAllDisksPlugin.icon.contains("imgs/"))
     }
 
-    @Test("Plugin has URL")
-    func pluginUrl() {
-        #expect(EjectAllDisksPlugin.url != nil)
-        #expect(EjectAllDisksPlugin.url?.absoluteString.contains("github") == true)
-    }
-
     @Test("Plugin targets macOS")
     func pluginOS() {
         let os = EjectAllDisksPlugin.os
