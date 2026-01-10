@@ -5,62 +5,36 @@ A Stream Deck plugin that adds a button to safely eject all external disks on ma
 ## Features
 
 - **Fast native disk ejection** - Uses macOS DiskArbitration framework for ~6x faster ejection than diskutil
-- **Real-time disk count monitoring** - Shows the number of attached external disks on the button icon
-- **Automatic updates** - Icon badge updates every 3 seconds when disks are mounted/unmounted
+- **Pure Swift implementation** - Native Stream Deck plugin with no Node.js or shell script dependencies
+- **Real-time disk count monitoring** - Shows the number of attached external disks on the button
+- **Automatic updates** - Disk count updates every 3 seconds as disks are mounted/unmounted
 - Single button to eject all external disks in parallel
 - Visual feedback for ejection status (normal, ejecting, success, error)
 - Customizable button title visibility
-- Animated states during ejection
-- Comprehensive error handling with blocking process detection
+- Comprehensive error handling with detailed logging
 
 ## Requirements
 
-- macOS 12 or later
+- macOS 13 or later
 - Stream Deck 6.4 or later
-- Stream Deck SDK 2.0 (beta)
-- Node.js 20 or later
+- Xcode Command Line Tools (for building from source)
 
 ## Installation
+
+### From Release
 
 1. Download the latest release from the [releases page](https://github.com/deverman/eject_all_disks_streamdeck/releases)
 2. Double-click the downloaded `.streamDeckPlugin` file to install it
 3. Stream Deck will prompt you to install the plugin
 
-## Initial Setup (One-Time)
+### From Source
 
-### Passwordless Disk Ejection Setup (Recommended)
-
-For the best experience, configure one-time passwordless disk ejection. This optional setup allows the plugin to eject disks without requiring you to enter your password each time.
-
-**Why set this up?**
-- No password prompts when ejecting disks
-- Faster and more reliable ejection using native macOS DiskArbitration framework
-- Seamless one-button operation
-
-**What it does:**
-The setup script adds a single rule to your macOS sudoers configuration (`/etc/sudoers.d/eject-disks`) that grants passwordless privileges **only** to the specific eject binary (`eject-disks`) included with this plugin. No other system permissions are granted.
-
-**Setup Steps:**
-
-1. Open the Stream Deck action's property inspector (click the gear icon on the Eject All Disks button)
-2. In the "Privilege Setup" section, check the current status
-3. If it shows "✗ Not configured":
-   - Click "Setup Instructions" to expand the section
-   - Click "Copy Command" to copy the setup command
-   - Open Terminal and paste the command
-   - Enter your admin password when prompted
-   - Click "Check Status" to verify the setup succeeded
-4. You should now see "✓ Configured" in green
-
-**Without this setup:**
-The plugin will still function but will fall back to slower disk ejection methods and may show "Not privileged" warnings for some volumes. You'll need to enter your password each time certain disks are ejected.
-
-For detailed instructions and troubleshooting, see [SETUP.md](org.deverman.ejectalldisks.sdPlugin/SETUP.md).
+See [Development](#development) section below.
 
 ## Usage
 
 1. Drag the "Eject All Disks" action from the "Eject All Disks" category onto your Stream Deck
-2. The button will automatically display the number of external disks currently attached (shown in a red badge in the top-right corner)
+2. The button will automatically display the number of external disks currently attached
 3. The count updates automatically every 3 seconds as you mount/unmount disks
 4. Press the button to eject all external disks
 5. The button will display the ejection status visually
@@ -68,18 +42,170 @@ For detailed instructions and troubleshooting, see [SETUP.md](org.deverman.eject
 
 ### Button States
 
-- **Default**: Standard eject icon with disk count badge (if disks are present)
-- **Ejecting**: Animated eject icon while process runs
-- **Success**: Green checkmark with eject icon
-- **Error**: Red X with eject icon
-
-The disk count badge appears as a red circle in the top-right corner of the icon, showing the number of external disks currently mounted.
+| State | Description |
+|-------|-------------|
+| **Default** | Shows "X Disk(s)" or "Eject All Disks" if none connected |
+| **Ejecting** | Shows "Ejecting..." while operation runs |
+| **Success** | Shows "Ejected!" with success indicator |
+| **No Disks** | Shows "No Disks" if nothing to eject |
+| **Error** | Shows "Error" or "Failed" with alert indicator |
 
 ### Settings
 
 In the Stream Deck button configuration:
 
-- **Show Title**: Toggle to show/hide the "Eject All Disks" text on the button
+- **Show Title**: Toggle to show/hide the disk count text on the button
+
+## Development
+
+### Prerequisites
+
+- macOS 13 or later
+- Xcode Command Line Tools (`xcode-select --install`)
+- Swift 5.9 or later
+
+### Project Structure
+
+```
+eject_all_disks_streamdeck/
+├── swift-plugin/                    # Swift Stream Deck plugin
+│   ├── Sources/EjectAllDisksPlugin/ # Plugin source code
+│   │   ├── Actions/                 # Stream Deck actions
+│   │   │   └── EjectAction.swift    # Main eject action
+│   │   └── EjectAllDisksPlugin.swift # Plugin entry point
+│   ├── Tests/                       # Swift Testing tests
+│   ├── Package.swift                # Swift package manifest
+│   └── build.sh                     # Build script
+├── swift/                           # SwiftDiskArbitration library
+│   └── Packages/SwiftDiskArbitration/
+├── org.deverman.ejectalldisks.sdPlugin/  # Plugin bundle
+│   ├── bin/                         # Compiled binary
+│   ├── ui/                          # Property Inspector HTML
+│   ├── imgs/                        # Icons and images
+│   └── manifest.json                # Plugin configuration
+└── README.md                        # This file
+```
+
+### Building the Plugin
+
+1. Clone the repository:
+
+```bash
+git clone https://github.com/deverman/eject_all_disks_streamdeck.git
+cd eject_all_disks_streamdeck
+```
+
+2. Build the Swift plugin:
+
+```bash
+cd swift-plugin
+./build.sh --update-manifest
+```
+
+This compiles the Swift plugin and copies the binary to the plugin bundle.
+
+### Running Tests
+
+```bash
+cd swift-plugin
+swift test
+```
+
+### Installing for Development
+
+**Option 1: Using Stream Deck CLI (Recommended)**
+
+```bash
+npx streamdeck link org.deverman.ejectalldisks.sdPlugin
+```
+
+**Option 2: Manual Symlink**
+
+```bash
+# Close Stream Deck first
+ln -sf "$(pwd)/org.deverman.ejectalldisks.sdPlugin" \
+  ~/Library/Application\ Support/com.elgato.StreamDeck/Plugins/
+```
+
+Then restart the Stream Deck application.
+
+### Development Workflow
+
+1. Make changes to Swift files in `swift-plugin/Sources/`
+2. Rebuild: `cd swift-plugin && ./build.sh`
+3. Restart plugin: `npx streamdeck restart org.deverman.ejectalldisks`
+4. Or restart Stream Deck application completely
+
+### Viewing Logs
+
+**Plugin logs via system log:**
+
+```bash
+log stream --predicate 'subsystem == "org.deverman.ejectalldisks"' --level debug
+```
+
+**Stream Deck application logs:**
+
+```bash
+tail -f ~/Library/Logs/com.elgato.StreamDeck/StreamDeck0.log
+```
+
+### Common Development Issues
+
+**Plugin doesn't appear in Stream Deck:**
+
+- Ensure the binary exists: `ls org.deverman.ejectalldisks.sdPlugin/bin/`
+- Run `./build.sh --update-manifest` to update the manifest
+- Restart Stream Deck application completely
+- Check that `manifest.json` has correct paths
+
+**Build errors:**
+
+- Ensure Xcode Command Line Tools are installed: `xcode-select --install`
+- Check Swift version: `swift --version` (requires 5.9+)
+- Clean build: `cd swift-plugin && swift package clean && ./build.sh`
+
+**Disk count not updating:**
+
+- Check logs for errors: `log stream --predicate 'subsystem == "org.deverman.ejectalldisks"'`
+- Verify you have external disks mounted (not internal)
+- Make sure the action is visible on your Stream Deck
+
+### Packaging for Distribution
+
+```bash
+cd swift-plugin
+./build.sh --update-manifest
+
+# Package the plugin
+mkdir -p dist
+cd ..
+zip -r dist/org.deverman.ejectalldisks.streamDeckPlugin \
+  org.deverman.ejectalldisks.sdPlugin \
+  -x "*.DS_Store" -x "*/logs/*" -x "*.log"
+```
+
+## Architecture
+
+### Swift Plugin Structure
+
+The plugin uses the [StreamDeckPlugin](https://github.com/emorydunn/StreamDeckPlugin) Swift library:
+
+- **EjectAllDisksPlugin** - Main plugin class that handles initialization and disk monitoring
+- **EjectAction** - KeyAction that responds to button presses and manages the eject operation
+- **SwiftDiskArbitration** - Local library providing async/await wrapper around macOS DiskArbitration framework
+
+### Disk Ejection
+
+The plugin uses the macOS DiskArbitration framework directly:
+
+1. Enumerates all mounted volumes using `DADiskCreateFromVolumePath`
+2. Filters to external, ejectable volumes only
+3. Unmounts each volume using `DADiskUnmount`
+4. Ejects the physical device using `DADiskEject`
+5. Runs all operations in parallel using Swift concurrency
+
+This approach is ~6x faster than calling `diskutil eject` as a subprocess.
 
 ## Security
 
@@ -88,434 +214,32 @@ This plugin:
 - Only ejects external disks (not internal drives)
 - Uses macOS's native DiskArbitration framework for safe unmount and eject
 - Validates disk paths before ejection
-- Optional sudoers setup grants privileges only for the specific eject binary
+- Runs entirely in user space with no elevated privileges required
 - Cannot access any other system resources
-
-## Development
-
-### Prerequisites
-
-- Node.js 20 or later
-- TypeScript
-- Stream Deck SDK and CLI
-
-### Project Structure
-
-```
-eject_all_disks_streamdeck/
-├── src/                    # TypeScript source files
-│   ├── actions/            # Action implementations
-│   └── plugin.ts           # Plugin entry point
-├── swift/                  # Swift CLI binary source
-│   ├── Sources/            # Swift source files
-│   └── Package.swift       # Swift package configuration
-├── org.deverman.ejectalldisks.sdPlugin/  # Plugin resources
-│   ├── bin/                # Compiled JS + Swift binary
-│   ├── ui/                 # Property Inspector HTML
-│   ├── imgs/               # Icons and images
-│   ├── logs/               # Plugin log files (auto-created)
-│   └── manifest.json       # Plugin configuration
-├── dist/                   # Packaged plugin (.streamDeckPlugin)
-└── README.md               # This file
-```
-
-### Building the Plugin
-
-1. Clone the repository:
-
-```bash
-git clone https://github.com/brentdeverman/eject-all-disks-streamdeck.git
-cd eject-all-disks-streamdeck
-```
-
-2. Install dependencies:
-
-```bash
-npm install
-```
-
-3. Build the TypeScript code:
-
-```bash
-npm run build
-```
-
-This compiles the TypeScript source files from `src/` into JavaScript in `org.deverman.ejectalldisks.sdPlugin/bin/`.
-
-### Testing and Development
-
-#### Quick Start - Testing in Stream Deck
-
-**Option 1: Link for Development (Recommended)**
-
-```bash
-# 1. Build the plugin first
-npm run build
-
-# 2. Link the plugin to Stream Deck
-npx streamdeck link
-
-# 3. Restart Stream Deck application
-# The plugin should now appear in Stream Deck
-```
-
-The `link` command creates a symlink so Stream Deck loads your plugin directly from the development directory.
-
-**Option 2: Install the Package**
-
-```bash
-# Build and package
-npm run build
-cd org.deverman.ejectalldisks.sdPlugin
-zip -r ../dist/org.deverman.ejectalldisks.streamDeckPlugin . -x "*.DS_Store"
-cd ..
-
-# Double-click the .streamDeckPlugin file to install
-open dist/org.deverman.ejectalldisks.streamDeckPlugin
-```
-
-#### Live Development with Watch Mode
-
-For active development with automatic reloading:
-
-```bash
-npm run watch
-```
-
-This command:
-
-- ✅ Watches `src/` directory for TypeScript changes
-- ✅ Automatically rebuilds on file changes
-- ✅ Restarts the plugin in Stream Deck automatically
-- ✅ Updates when `manifest.json` changes
-
-**While watch mode is running:**
-
-1. Edit files in `src/`
-2. Save your changes
-3. Plugin automatically rebuilds and restarts
-4. Changes appear in Stream Deck within seconds
-
-**To stop watch mode:** Press `Ctrl + C`
-
-#### Viewing Plugin Logs
-
-Plugin logs are stored in the plugin's own directory with automatic rotation (10 files max, 10 MiB each).
-
-**Log Location:**
-
-```bash
-~/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin/logs/
-```
-
-**View the latest log:**
-
-```bash
-cat ~/Library/Application\ Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin/logs/org.deverman.ejectalldisks.0.log
-```
-
-**Follow logs in real-time:**
-
-```bash
-tail -f ~/Library/Application\ Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin/logs/org.deverman.ejectalldisks.0.log
-```
-
-**View recent entries:**
-
-```bash
-tail -200 ~/Library/Application\ Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin/logs/org.deverman.ejectalldisks.0.log
-```
-
-Log files are numbered 0-9, with 0 being the most recent. A new log file is created when the plugin starts or when the current file exceeds 10 MiB.
-
-#### What to Look For in Logs
-
-The plugin outputs these key messages:
-
-```
-# Startup
-Eject All Disks plugin starting...
-Found Swift binary at: /path/to/eject-disks
-
-# Disk monitoring
-Disk count updated to: 2 for action xxx (forced: false)
-
-# Ejection process
-Ejecting disks...
-Swift eject completed: 2/2 ejected, 0 failed, took 5.23s
-  [OK] DiskName ejected in 5.20s
-SHOWING SUCCESS ICON - All disks ejected successfully
-
-# Errors
-  [FAIL] DiskName: Unmount of disk16 failed...
-Failed to eject "DiskName": error message
-  Blocking processes: AppName (PID: 1234, User: username)
-SHOWING ERROR ICON - Error ejecting disks: ...
-```
-
-#### Testing the Disk Count Feature
-
-1. **Add the button to Stream Deck:**
-    - Drag "Eject All Disks" from the actions panel to a key
-
-2. **Mount external disks:**
-    - Connect a USB drive or mount a disk image
-    - Wait up to 3 seconds for the badge to appear
-
-3. **Watch the counter update:**
-    - Mount more disks → badge shows increasing count
-    - Eject disks via Finder → badge decreases
-    - All disks ejected → badge disappears
-
-4. **Test ejection:**
-    - Press the Stream Deck button
-    - Icon shows animated "Ejecting..." state
-    - Success: Green checkmark appears
-    - Error: Red X appears with alert
-
-5. **Check logs for errors:**
-    ```bash
-    tail -f ~/Library/Logs/com.elgato.StreamDeck/StreamDeck0.log | grep -i "eject"
-    ```
-
-#### Development Tips
-
-1. **Enable Debug Mode:**
-   The plugin has debug logging enabled in `manifest.json`:
-
-    ```json
-    "Nodejs": {
-      "Version": "20",
-      "Debug": "enabled"
-    }
-    ```
-
-2. **Quick Restart:**
-
-    ```bash
-    npx streamdeck restart org.deverman.ejectalldisks
-    ```
-
-3. **Force Reload Stream Deck:**
-   If changes aren't appearing, restart Stream Deck:
-    - Quit Stream Deck completely
-    - Reopen Stream Deck
-    - Plugin loads with fresh code
-
-4. **Validate Plugin Structure:**
-
-    ```bash
-    npx streamdeck validate org.deverman.ejectalldisks.sdPlugin
-    ```
-
-5. **Manual Disk Count Test:**
-   Test the disk counting command directly:
-    ```bash
-    diskutil list external | grep -o -E '/dev/disk[0-9]+' | sort -u
-    ```
-    The output should match what appears on your Stream Deck button.
-
-#### Common Development Issues
-
-**Plugin doesn't appear in Stream Deck:**
-
-- Run `npx streamdeck link` again
-- Restart Stream Deck application completely
-- Check that `manifest.json` has correct UUID and paths
-- Verify `bin/plugin.js` exists after building
-
-**Changes not reflecting:**
-
-- Make sure you ran `npm run build`
-- If using watch mode, check that it's still running
-- Try `npx streamdeck restart org.deverman.ejectalldisks`
-- Quit and reopen Stream Deck
-
-**Disk count not updating:**
-
-- Check logs for "Error counting disks" messages
-- Verify you have external disks mounted (not internal)
-- Test the diskutil command manually
-- Make sure the action is visible on your Stream Deck (monitoring stops when hidden)
-
-**Build errors:**
-
-- Delete `node_modules` and `package-lock.json`
-- Run `npm install` again
-- Make sure you're using Node.js 20 or later: `node --version`
-
-### Packaging for Distribution
-
-To create a `.streamDeckPlugin` file for distribution:
-
-```bash
-# Method 1: Using StreamDeck CLI (if available)
-npx streamdeck pack org.deverman.ejectalldisks.sdPlugin --output dist
-
-# Method 2: Manual packaging
-mkdir -p dist
-zip -r dist/org.deverman.ejectalldisks.streamDeckPlugin org.deverman.ejectalldisks.sdPlugin \
-  -x "*.DS_Store" \
-  -x "*/logs/*" \
-  -x "*.log"
-```
-
-The packaged file will be in `dist/org.deverman.ejectalldisks.streamDeckPlugin`.
-
-### Releasing New Versions
-
-This project uses GitHub Actions to automate the release process. When you create a new release on GitHub, the workflow automatically builds and packages the plugin, then attaches it to the release.
-
-#### Step-by-Step Release Process
-
-**1. Update the version number:**
-
-```bash
-npm run version:bump 2.0.0
-```
-
-This script updates `manifest.json` with the new version (converted to 4-part format: `2.0.0.0`).
-
-**2. Commit the version change:**
-
-```bash
-git add org.deverman.ejectalldisks.sdPlugin/manifest.json
-git commit -m "Bump version to 2.0.0"
-```
-
-**3. Create and push a git tag:**
-
-```bash
-git tag -a v2.0.0 -m "Release v2.0.0"
-git push && git push origin v2.0.0
-```
-
-**4. Create the GitHub release:**
-
-Option A - Using GitHub web interface:
-
-1. Go to https://github.com/deverman/eject_all_disks_streamdeck/releases/new?tag=v2.0.0
-2. Fill in the release title and notes
-3. Click "Publish release"
-
-Option B - Using GitHub CLI:
-
-```bash
-gh release create v2.0.0 \
-  --title "v2.0.0" \
-  --notes "Release notes here"
-```
-
-**5. Wait for automation:**
-
-GitHub Actions will automatically:
-
-- Build the TypeScript code
-- Package the plugin
-- Upload `org.deverman.ejectalldisks.streamDeckPlugin` to the release
-
-Users can then download the plugin directly from the releases page!
-
-#### Version Numbering
-
-Follow [Semantic Versioning](https://semver.org/):
-
-- **MAJOR** (x.0.0): Breaking changes
-- **MINOR** (1.x.0): New features (backwards compatible)
-- **PATCH** (1.0.x): Bug fixes
-
-Note: Stream Deck uses 4-part versioning in `manifest.json` (e.g., `2.0.0.0`), but Git tags and releases use 3-part versioning (e.g., `v2.0.0`).
-
-### Implementation Details
-
-#### SVG Icons
-
-The plugin uses SVG icons for dynamic rendering with different states:
-
-- Normal state: Orange eject icon
-- Ejecting state: Animated yellow eject icon
-- Success state: Green eject icon with checkmark
-- Error state: Red eject icon with X mark
-
-Each icon includes a semi-transparent background for better text contrast.
-
-#### Settings Implementation
-
-Settings are implemented using:
-
-- TypeScript interface for type safety
-- Default values to handle initialization
-- Property Inspector for UI controls
-- WebSocket communication between UI and plugin
-
-#### Disk Ejection
-
-The plugin uses a Swift CLI binary for fast parallel disk ejection:
-
-**Primary method (Swift binary with DiskArbitration):**
-
-- Uses macOS DiskArbitration framework (`DADiskUnmount` + `DADiskEject`)
-- ~6x faster than `diskutil eject` subprocess calls
-- Unmounts all volumes on a physical disk, then ejects the device
-- Runs ejections in parallel using Swift concurrency
-- Reports blocking processes when ejection fails
-- Located at `bin/eject-disks` in the plugin directory
-
-**Fallback method (Shell script):**
-If the Swift binary is unavailable, the plugin falls back to a shell script that runs `diskutil eject` for each volume in parallel.
-
-**Diagnostic commands:**
-
-```bash
-# List ejectable volumes
-./eject-disks list
-
-# Show what processes are blocking each volume
-./eject-disks diagnose
-
-# Eject all volumes with verbose output
-./eject-disks eject --verbose
-
-# Benchmark native vs diskutil speed
-./eject-disks benchmark --eject
-```
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **"Not privileged" error or "✗ Not configured" status:**
-    - Run the privilege setup script (see [Initial Setup](#initial-setup-one-time))
-    - After running the setup script, click "Check Status" in the Property Inspector to verify
-    - You should see "✓ Configured" in green
-    - If the status still shows "✗ Not configured" after setup:
-      - Verify the sudoers file was created: `ls -l /etc/sudoers.d/eject-disks`
-      - Check the sudoers file format: `sudo cat /etc/sudoers.d/eject-disks`
-      - The path should have escaped spaces (e.g., `Application\ Support`)
-      - If the path looks incorrect, delete the file and re-run setup: `sudo rm /etc/sudoers.d/eject-disks`
-      - Test sudo access manually: `sudo -n /path/to/eject-disks --version` (should not ask for password)
+1. **Button shows error state:**
+   - Check logs for which process is blocking ejection
+   - Common blockers: Spotlight (`mds`), backup apps, file sync apps
+   - Try pressing the button again - temporary locks often release quickly
 
-2. **Setup command fails or asks for password every time:**
-    - Make sure you're running the exact command provided in the Property Inspector
-    - The command should start with `sudo bash -c`
-    - If you see "syntax error" or "permission denied", the sudoers path may have unescaped spaces
-    - Try re-installing the plugin (version 2.0.2 or later) which includes the fix for path escaping
+2. **Disk won't eject but Finder can eject it:**
+   - Finder sends a "please close files" notification to apps before ejecting
+   - The native API doesn't send this notification
+   - Pause or quit the blocking application, then try again
 
-3. **Button shows error state:**
-    - Check the plugin logs for which process is blocking ejection
-    - Common blockers: Spotlight (`mds`), backup apps (Time Machine), file sync apps (Dropbox)
-    - Run the eject binary directly to diagnose: `./eject-disks diagnose`
-    - Try pressing the button again - temporary locks often release quickly
+3. **Disk count shows 0 but disks are connected:**
+   - Only external, ejectable volumes are counted
+   - Network drives and internal volumes are excluded
+   - Check that disks appear in Finder sidebar
 
-4. **Disk won't eject but Finder can eject it:**
-    - Finder sends a "please close files" notification to apps before ejecting
-    - The native API doesn't send this notification
-    - Pause or quit the blocking application, then try again
-
-5. **Settings not saving:**
-    - Restart Stream Deck software
-    - Check plugin logs for errors
-    - Try removing and re-adding the action button
+4. **Plugin not loading:**
+   - Verify binary exists and is executable
+   - Check Stream Deck logs for error messages
+   - Try reinstalling the plugin
 
 ## License
 
@@ -529,13 +253,13 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 If you encounter any issues:
 
-1. Check the [Issues]((https://github.com/deverman/eject_all_disks_streamdeck/issues) page
+1. Check the [Issues](https://github.com/deverman/eject_all_disks_streamdeck/issues) page
 2. File a new issue with:
-    - macOS version
-    - Stream Deck software version
-    - Steps to reproduce
-    - Error messages if any
+   - macOS version
+   - Stream Deck software version
+   - Steps to reproduce
+   - Log output if available
 
 ## Credits
 
-Vibe coded by [Brent Deverman](https://deverman.org) using [Zed](https://zed.dev)
+Created by [Brent Deverman](https://deverman.org)
