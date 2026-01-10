@@ -18,7 +18,8 @@ enum DisplayTitle {
         if count > 0 {
             return "\(count) Disk\(count == 1 ? "" : "s")"
         } else {
-            return "Eject All\nDisks"
+            // Show "No Disks" when nothing is mounted - clearer UX
+            return "No Disks"
         }
     }
 
@@ -53,10 +54,10 @@ struct DisplayTitleTests {
 
     // MARK: - Disk Count Display
 
-    @Test("Zero disks shows default title")
+    @Test("Zero disks shows No Disks")
     func zeroDiskTitle() {
         let title = DisplayTitle.forDiskCount(0, showTitle: true)
-        #expect(title == "Eject All\nDisks")
+        #expect(title == "No Disks")
     }
 
     @Test("One disk shows singular")
@@ -127,7 +128,7 @@ struct DiskCountEdgeCaseTests {
 
     @Test("Negative disk count handled", arguments: [-1, -5, -100])
     func negativeDiskCount(count: Int) {
-        // Negative counts should show "Eject All Disks" (treated as 0)
+        // Negative counts should show "No Disks" (treated as 0)
         let title = DisplayTitle.forDiskCount(count, showTitle: true)
         // Current implementation would show "-1 Disks" etc.
         // This documents current behavior
@@ -141,7 +142,7 @@ struct StateTransitionTests {
     @Test("Normal state titles vary by disk count")
     func normalStateTitles() {
         // No disks
-        #expect(DisplayTitle.forDiskCount(0, showTitle: true) == "Eject All\nDisks")
+        #expect(DisplayTitle.forDiskCount(0, showTitle: true) == "No Disks")
 
         // Has disks
         #expect(DisplayTitle.forDiskCount(1, showTitle: true) == "1 Disk")

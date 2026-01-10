@@ -69,10 +69,9 @@ The macOS DiskArbitration framework requires elevated permissions to unmount and
 | State | Description |
 |-------|-------------|
 | **Idle (disks connected)** | Shows "X Disk(s)" count |
-| **Idle (no disks)** | Shows "Eject All Disks" |
+| **Idle (no disks)** | Shows "No Disks" |
 | **Ejecting** | Shows "Ejecting..." while operation runs |
 | **Success** | Shows "Ejected!" after successful eject |
-| **No Disks** | Shows "No Disks" when button pressed but nothing to eject |
 | **Error** | Shows error details: "In Use", "1 of 3 Failed", "Grant Access", etc. |
 
 ### Settings

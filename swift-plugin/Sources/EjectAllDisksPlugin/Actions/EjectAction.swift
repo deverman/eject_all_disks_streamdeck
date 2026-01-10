@@ -257,7 +257,8 @@ class EjectAction: KeyAction {
             if diskCount > 0 {
                 setTitle(to: "\(diskCount) Disk\(diskCount == 1 ? "" : "s")", target: nil, state: nil)
             } else {
-                setTitle(to: "Eject All\nDisks", target: nil, state: nil)
+                // Show "No Disks" when nothing is mounted - clearer than "Eject All Disks"
+                setTitle(to: "No Disks", target: nil, state: nil)
             }
         } else {
             setTitle(to: nil, target: nil, state: nil)
