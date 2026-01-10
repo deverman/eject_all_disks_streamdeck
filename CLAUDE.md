@@ -1,459 +1,740 @@
-# CLAUDE.md - AI Assistant Development Guidelines
+# CLAUDE.md - Swift Stream Deck Plugin Development Guide
 
-**Last Updated:** 2025-12-27
+**Last Updated:** 2026-01-11
 
-This document captures critical guidelines and lessons learned to prevent inefficiencies, reduce back-and-forth, and ensure high-quality contributions to this codebase.
-
----
-
-## CRITICAL REQUIREMENTS
-
-### 1. Swift Code Validation (MANDATORY)
-
-**NEVER commit Swift code without validating it first.**
-
-#### The Problem:
-In this session, I committed Swift code with Sendable conformance errors, forcing the user to:
-1. Pull the code
-2. Attempt to build
-3. Report compilation errors back to me
-4. Wait for a fix
-5. Rebuild
-
-**This wasted significant time and broke trust.**
-
-#### The Solution:
-Before committing ANY Swift code changes:
-
-1. **Review Swift 6 Strict Concurrency Requirements:**
-   - All types passed through `withTaskGroup` MUST be `Sendable`
-   - Common non-Sendable types:
-     - `Any`, `AnyObject`
-     - `[String: Any]` (dictionaries with Any values)
-     - Closures capturing mutable state
-     - Classes without `@unchecked Sendable` (use sparingly)
-
-2. **Mental Compilation Checklist:**
-   ```
-   ☐ All TaskGroup types are Sendable (String, Int, Bool, custom Sendable structs)
-   ☐ No implicit captures of non-Sendable data across async boundaries
-   ☐ Actor isolation boundaries are respected
-   ☐ No use of @unchecked Sendable without clear safety justification
-   ☐ All async functions properly marked and await calls are correct
-   ```
-
-3. **Common Patterns:**
-   - ❌ BAD: `withTaskGroup(of: [String: Any].self)`
-   - ✅ GOOD: `withTaskGroup(of: (String, Bool).self)`
-   - ❌ BAD: Capturing `var` from outside closure in TaskGroup
-   - ✅ GOOD: Pass all data as parameters or use `let` constants
-
-#### Why I Failed:
-- I was in a Linux environment without Swift compiler
-- I rushed to implement the mount command
-- I didn't mentally validate the Sendable conformance
-
-#### How to Prevent:
-- **ALWAYS** mentally compile before committing
-- **NEVER** assume "it should work"
-- **THINK** about what types cross async boundaries
+This document provides comprehensive guidelines for developing Swift-native Stream Deck plugins using the [StreamDeckPlugin](https://github.com/emorydunn/StreamDeckPlugin) library. It captures architecture patterns, best practices, and lessons learned from production plugin development.
 
 ---
 
-## Lessons Learned from This Session
+## Table of Contents
 
-### Mistake #1: Swift Sendable Conformance Errors
+1. [Quick Start](#quick-start)
+2. [Architecture Overview](#architecture-overview)
+3. [Creating a New Plugin](#creating-a-new-plugin)
+4. [Adding Actions to a Plugin](#adding-actions-to-a-plugin)
+5. [Swift 6 Concurrency Requirements](#swift-6-concurrency-requirements)
+6. [Build & Distribution](#build--distribution)
+7. [Testing Strategy](#testing-strategy)
+8. [Common Patterns](#common-patterns)
+9. [Troubleshooting](#troubleshooting)
+10. [Validation Checklists](#validation-checklists)
 
-**What Happened:**
-Committed mount command implementation with `withTaskGroup(of: (String, [String: Any]?, [[String: Any]]?).self)` - dictionaries with `Any` are not Sendable.
+---
 
-**Impact:**
-- User had to report compilation errors
-- Required immediate fix and rebuild
-- Wasted 10+ minutes of user time
+## Quick Start
 
-**How to Prevent:**
-- Review EVERY `withTaskGroup` call for Sendable conformance
-- Ask: "Can this type be safely sent across async boundaries?"
-- When in doubt, use simpler Sendable types (String, Int, Bool, custom structs)
+### Build and Run Existing Plugin
+```bash
+cd swift-plugin
+./build.sh --install
+streamdeck restart org.deverman.ejectalldisks
+```
 
-**Correct Approach:**
+### View Logs
+```bash
+log stream --predicate 'subsystem == "org.deverman.ejectalldisks"' --level debug
+```
+
+### Package for Distribution
+```bash
+streamdeck pack org.deverman.ejectalldisks.sdPlugin
+```
+
+---
+
+## Architecture Overview
+
+### Project Structure
+```
+your-plugin-name/
+├── swift-plugin/                        # Swift package
+│   ├── Package.swift                    # Swift package manifest
+│   ├── build.sh                         # Build and install script
+│   ├── Sources/YourPluginName/
+│   │   ├── YourPluginName.swift         # @main plugin entry point
+│   │   └── Actions/
+│   │       ├── ActionOne.swift          # First action
+│   │       └── ActionTwo.swift          # Additional actions
+│   └── Tests/YourPluginNameTests/       # Swift Testing tests
+├── org.yourorg.pluginname.sdPlugin/     # Plugin bundle (source assets)
+│   ├── manifest.json                    # Plugin manifest (CodePath = binary name)
+│   ├── imgs/                            # Icons and images
+│   │   ├── plugin/                      # Plugin-level icons
+│   │   │   ├── marketplace.png          # Marketplace icon (144x144)
+│   │   │   └── category-icon.png        # Category icon (28x28)
+│   │   └── actions/
+│   │       └── action-name/
+│   │           ├── icon.png             # Action icon (20x20)
+│   │           ├── state.svg            # Normal state image
+│   │           └── other-states.svg     # Additional state images
+│   └── ui/
+│       └── action-name.html             # Property Inspector HTML
+└── CLAUDE.md                            # This file
+```
+
+### Key Dependencies
+
+| Dependency | Purpose | Source |
+|------------|---------|--------|
+| StreamDeckPlugin | Swift SDK for Stream Deck plugins | `https://github.com/emorydunn/StreamDeckPlugin.git` |
+| Swift Testing | Modern test framework | Built into Swift 5.9+ |
+
+### Plugin vs Action Architecture
+
+- **Plugin** (`Plugin` protocol): Main entry point, defines metadata and registers actions
+- **Action** (`KeyAction` protocol): Individual button behavior, handles user interaction
+- **Settings** (`Codable` struct): Per-action settings stored by Stream Deck
+- **GlobalSettings** (`GlobalSettings` extension): Shared state across all action instances
+
+---
+
+## Creating a New Plugin
+
+### Step 1: Create Package.swift
+
 ```swift
-// Only pass Sendable data through TaskGroup
-let externalDiskIds = await withTaskGroup(of: (String, Bool).self) { group in
-    // String and Bool are both Sendable
+// swift-tools-version: 5.9
+
+import PackageDescription
+
+let package = Package(
+    name: "YourPluginName",
+    platforms: [
+        .macOS(.v13)  // Stream Deck 6.4+ requires macOS 13+
+    ],
+    products: [
+        .executable(
+            name: "org.yourorg.pluginname",  // MUST match plugin UUID
+            targets: ["YourPluginName"]
+        )
+    ],
+    dependencies: [
+        .package(url: "https://github.com/emorydunn/StreamDeckPlugin.git", from: "0.6.0"),
+        // Add your own dependencies here
+    ],
+    targets: [
+        .executableTarget(
+            name: "YourPluginName",
+            dependencies: [
+                .product(name: "StreamDeck", package: "StreamDeckPlugin"),
+            ],
+            path: "Sources/YourPluginName"
+        ),
+        .testTarget(
+            name: "YourPluginNameTests",
+            dependencies: ["YourPluginName"],
+            path: "Tests/YourPluginNameTests"
+        )
+    ]
+)
+```
+
+### Step 2: Create Plugin Entry Point
+
+```swift
+// Sources/YourPluginName/YourPluginName.swift
+
+import Foundation
+import StreamDeck
+import OSLog
+
+fileprivate let log = Logger(subsystem: "org.yourorg.pluginname", category: "plugin")
+
+// Define global settings if needed
+extension GlobalSettings {
+    @Entry var someGlobalState: Bool = false
 }
 
-// Process non-Sendable dictionaries outside the TaskGroup
-for diskInfo in allDisks {
-    // Work with [String: Any] serially
+@main
+class YourPluginName: Plugin {
+
+    // MARK: - Plugin Metadata
+    static var name: String = "Your Plugin Name"
+    static var description: String = "What your plugin does"
+    static var author: String = "Your Name"
+    static var icon: String = "imgs/plugin/marketplace"
+    static var version: String = "1.0.0"
+    static var os: [PluginOS] = [.macOS("13")]
+
+    // MARK: - Actions
+    @ActionBuilder
+    static var actions: [any Action.Type] {
+        YourFirstAction.self
+        // Add more actions here
+    }
+
+    // MARK: - Layouts (for Stream Deck+ dials)
+    @LayoutBuilder
+    static var layouts: [Layout] { }
+
+    // MARK: - Initialization
+    required init() {
+        log.info("Plugin initialized")
+    }
 }
 ```
 
----
+### Step 3: Create manifest.json
 
-### Mistake #2: Wrong AppleScript Syntax for Jettison
-
-**What Happened:**
-Used `tell application "Jettison" to eject all disks` instead of `tell application "Jettison" to eject`
-
-**Error:**
+```json
+{
+    "Name": "Your Plugin Name",
+    "Version": "1.0.0",
+    "Author": "Your Name",
+    "Actions": [
+        {
+            "Name": "Your Action",
+            "UUID": "org.yourorg.pluginname.actionname",
+            "Icon": "imgs/actions/actionname/icon",
+            "Tooltip": "What this action does",
+            "PropertyInspectorPath": "ui/actionname.html",
+            "Controllers": ["Keypad"],
+            "States": [
+                {
+                    "Image": "imgs/actions/actionname/state",
+                    "TitleAlignment": "middle",
+                    "FontSize": 16
+                }
+            ]
+        }
+    ],
+    "Category": "Your Plugin Name",
+    "CategoryIcon": "imgs/plugin/category-icon",
+    "CodePath": "org.yourorg.pluginname",
+    "Description": "What your plugin does",
+    "Icon": "imgs/plugin/marketplace",
+    "SDKVersion": 2,
+    "Software": {
+        "MinimumVersion": "6.4"
+    },
+    "OS": [
+        {
+            "Platform": "mac",
+            "MinimumVersion": "13"
+        }
+    ],
+    "UUID": "org.yourorg.pluginname"
+}
 ```
-37:46: syntax error: A identifier can't go after this identifier. (-2740)
+
+### Step 4: Create build.sh
+
+```bash
+#!/bin/bash
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+PLUGIN_DIR="$PROJECT_ROOT/org.yourorg.pluginname.sdPlugin"
+
+echo "Building YourPluginName..."
+cd "$SCRIPT_DIR"
+swift build -c release
+echo "Build succeeded!"
+
+if [ "$1" == "--install" ]; then
+    echo "Installing to Stream Deck..."
+    swift run org.yourorg.pluginname export org.yourorg.pluginname \
+        --generate-manifest \
+        --copy-executable
+
+    INSTALL_DIR="$HOME/Library/Application Support/com.elgato.StreamDeck/Plugins/org.yourorg.pluginname.sdPlugin"
+    cp -r "$PLUGIN_DIR/imgs" "$INSTALL_DIR/"
+    cp -r "$PLUGIN_DIR/ui" "$INSTALL_DIR/"
+
+    echo "Plugin installed!"
+    echo "Restart with: streamdeck restart org.yourorg.pluginname"
+fi
 ```
 
-**Impact:**
-- Multiple test script failures
-- User had to report AppleScript errors
-- Created test-jettison-mount.sh unnecessarily
-- Required fixing 3 files: benchmark-suite.sh, debug-jettison.sh, test-jettison-timing.sh
-
-**How to Prevent:**
-- **Research before implementing** - Look up AppleScript API documentation
-- **Test incrementally** - Don't commit untested AppleScript commands
-- **Follow established patterns** - Check if similar code exists in the repo
-
-**Correct Approach:**
-1. Search for "Jettison AppleScript API" documentation first
-2. Test the command in a small script before integrating
-3. Only commit once verified working
-
 ---
 
-### Mistake #3: Inefficient Jettison Detection Evolution
+## Adding Actions to a Plugin
 
-**What Happened:**
-1. First used `diskutil list | grep -q 'external, physical'`
-2. User reported it might not work
-3. I created debug scripts to test detection
-4. Turned out the grep pattern DID work
-5. Changed to `$BINARY_PATH count` anyway (which was better, but unnecessary pivot)
+### Action Template (KeyAction)
 
-**Impact:**
-- Created extra debug scripts that weren't needed
-- Multiple iterations of detection methods
-- User confusion about which approach to use
-
-**How to Prevent:**
-- **Test assumptions before pivoting** - The original grep DID work
-- **Stick with working solutions** - Don't fix what isn't broken
-- **When improving, explain why** - Make it clear when optimization is the goal
-
-**Better Approach:**
-1. Test the grep pattern first to see if it actually fails
-2. If it works, keep it
-3. If optimizing, explain: "The grep works, but using binary count is more reliable"
-
----
-
-### Mistake #4: Wrong File Naming Convention
-
-**What Happened:**
-Created `CLAUDE_GUIDELINES.md` instead of `CLAUDE.md`
-
-**Impact:**
-- Wrong naming convention
-- Had to recreate the file
-- Extra commit/push cycle
-
-**How to Prevent:**
-- **Ask first** when unsure about conventions
-- **Check existing patterns** in the repository
-- **CLAUDE.md is the standard** - remember this
-
----
-
-### Mistake #5: Not Being Proactive About Automation
-
-**What Happened:**
-User had to manually remount drives between benchmark runs until they asked: "Can we automate this with Jettison or Swift?"
-
-**Better Approach:**
-- Should have suggested the mount command automation IMMEDIATELY
-- When I saw "Please remount manually" I should have said:
-  - "I can create a mount command in Swift to automate this"
-  - "Would you like me to add automatic remounting to the benchmark?"
-
-**Lesson:**
-- **Be proactive about automation opportunities**
-- **Don't wait for the user to suggest improvements**
-- **Think about the full workflow, not just individual commands**
-
----
-
-## Development Workflow
-
-### Before Starting Any Task
-
-1. **Understand the full context**
-   - Read related code
-   - Check existing patterns
-   - Identify dependencies
-
-2. **Plan the implementation**
-   - Think through the approach
-   - Identify potential issues
-   - Consider Swift 6 concurrency requirements
-
-3. **Validate assumptions**
-   - Don't guess API syntax - research it
-   - Test patterns before committing
-   - Ask the user if uncertain
-
-### During Implementation
-
-1. **Write code incrementally**
-   - Small, testable changes
-   - Validate as you go
-   - Mental compilation checks
-
-2. **For Swift code specifically:**
-   ```
-   ☐ Are all async boundaries properly handled?
-   ☐ Are all TaskGroup types Sendable?
-   ☐ Are actor isolation rules followed?
-   ☐ Are there any implicit captures?
-   ☐ Would this compile with Swift 6 strict concurrency?
-   ```
-
-3. **For shell scripts:**
-   - Test variable substitution
-   - Check quote escaping
-   - Verify heredoc syntax
-   - Test JSON parsing
-
-### Before Committing
-
-1. **Final validation checklist:**
-   ```
-   ☐ Swift: Mental compilation check (Sendable, async, actor isolation)
-   ☐ Shell: Syntax validation (quotes, pipes, heredocs)
-   ☐ AppleScript: Verified syntax against documentation
-   ☐ Tests: Would this work in production?
-   ☐ Efficiency: Is this the best approach?
-   ```
-
-2. **Commit message quality:**
-   - Explain WHAT changed
-   - Explain WHY it changed
-   - Note any breaking changes
-   - Reference related issues
-
-3. **Push immediately after commit:**
-   - Don't leave unpushed commits
-   - User's stop-hook will catch this
-
----
-
-## Communication Guidelines
-
-### When Uncertain
-
-**DON'T:**
-- Guess and commit broken code
-- Assume API syntax without checking
-- Pivot approaches without testing first
-
-**DO:**
-- Ask the user for clarification
-- Research documentation first
-- Test incrementally before committing
-
-### When Making Mistakes
-
-**DON'T:**
-- Make excuses ("I'm in a Linux environment")
-- Blame the tools
-- Minimize the impact
-
-**DO:**
-- Acknowledge the mistake clearly
-- Fix it immediately
-- Document the lesson learned
-- Commit to preventing it
-
-### Being Proactive
-
-**LOOK FOR:**
-- Repetitive manual tasks → Automation opportunities
-- Hard-coded values → Configuration options
-- Multiple similar scripts → Shared functions
-- User pain points → Improvement opportunities
-
-**SUGGEST:**
-- "I can automate this with..."
-- "Would you like me to add..."
-- "I notice this could be improved by..."
-
----
-
-## Swift 6 Strict Concurrency Reference
-
-### Sendable Types (Safe to Pass Through TaskGroup)
-
-✅ **Value Types:**
-- `String`, `Int`, `Bool`, `Double`, `Float`
-- `Array<T>` where T is Sendable
-- `Dictionary<K, V>` where K and V are Sendable
-- `Set<T>` where T is Sendable
-- Structs marked `Sendable` with only Sendable properties
-
-✅ **Reference Types:**
-- Actors (always Sendable)
-- Classes marked `@unchecked Sendable` (use with extreme caution)
-- Immutable classes with only Sendable properties
-
-❌ **Non-Sendable Types:**
-- `Any`, `AnyObject`
-- `[String: Any]` (dictionary with Any value)
-- Closures capturing mutable state
-- Most classes (unless marked `@unchecked Sendable`)
-- Structs with non-Sendable properties
-
-### Common Patterns
-
-**Pattern 1: Pass Simple Data, Process Complex Data Outside**
 ```swift
-// ✅ GOOD: Only pass IDs through TaskGroup
-let externalIds = await withTaskGroup(of: String.self) { group in
-    for item in items {
-        group.addTask {
-            return getIDIfExternal(item) // Returns String
+// Sources/YourPluginName/Actions/YourAction.swift
+
+import Foundation
+import StreamDeck
+import OSLog
+
+fileprivate let log = Logger(subsystem: "org.yourorg.pluginname", category: "action")
+
+/// Settings for this action (persisted per-button)
+struct YourActionSettings: Codable, Hashable, Sendable {
+    var showTitle: Bool = true
+    var customOption: String = "default"
+}
+
+/// Your action implementation
+class YourAction: KeyAction {
+
+    // MARK: - Action Metadata
+    typealias Settings = YourActionSettings
+
+    static var name: String = "Your Action Name"
+    static var uuid: String = "org.yourorg.pluginname.actionname"
+    static var icon: String = "imgs/actions/actionname/icon"
+    static var propertyInspectorPath: String? = "ui/actionname.html"
+
+    static var states: [PluginActionState]? = [
+        PluginActionState(
+            image: "imgs/actions/actionname/state",
+            titleAlignment: .middle
+        )
+    ]
+
+    // MARK: - Instance Properties
+    var context: String
+    var coordinates: StreamDeck.Coordinates?
+
+    /// Access to global settings
+    @GlobalSetting(\.someGlobalState) var isProcessing: Bool
+
+    /// Timer for polling (if needed)
+    private var pollingTimer: DispatchSourceTimer?
+
+    // MARK: - Initialization
+    required init(context: String, coordinates: StreamDeck.Coordinates?) {
+        self.context = context
+        self.coordinates = coordinates
+    }
+
+    // MARK: - Lifecycle Events
+
+    /// Called when action appears on Stream Deck
+    func willAppear(device: String, payload: AppearEvent<Settings>) {
+        log.info("Action appeared on device \(device)")
+        let settings = payload.settings
+        // Initialize based on settings
+        updateDisplay(settings: settings)
+    }
+
+    /// Called when action disappears from Stream Deck
+    func willDisappear(device: String, payload: AppearEvent<Settings>) {
+        log.info("Action disappeared from device \(device)")
+        // Cleanup timers, observers, etc.
+        stopPolling()
+    }
+
+    /// Called when settings change in Property Inspector
+    func didReceiveSettings(device: String, payload: SettingsEvent<Settings>.Payload) {
+        log.debug("Settings updated")
+        updateDisplay(settings: payload.settings)
+    }
+
+    // MARK: - Key Events
+
+    /// Called when key is released (primary action)
+    func keyUp(device: String, payload: KeyEvent<Settings>, longPress: Bool) {
+        if longPress { return }  // Optional: handle long press differently
+
+        log.info("Key pressed")
+
+        // Prevent concurrent operations
+        guard !isProcessing else {
+            log.warning("Already processing, ignoring")
+            return
+        }
+
+        let settings = payload.settings
+
+        Task { @MainActor in
+            await performAction(settings: settings)
         }
     }
-    // Collect IDs
-}
 
-// Process complex data outside TaskGroup
-for item in items where externalIds.contains(item.id) {
-    // Work with non-Sendable item here
+    // MARK: - Action Logic
+
+    @MainActor
+    private func performAction(settings: Settings) async {
+        isProcessing = true
+
+        // Show progress state
+        setImage(toImage: "processing", withExtension: "svg", subdirectory: "imgs/actions/actionname")
+        setTitle(to: settings.showTitle ? "Working..." : nil, target: nil, state: nil)
+
+        do {
+            // YOUR ACTION LOGIC HERE
+            let result = try await doSomething()
+
+            // Show success
+            setImage(toImage: "success", withExtension: "svg", subdirectory: "imgs/actions/actionname")
+            setTitle(to: settings.showTitle ? "Done!" : nil, target: nil, state: nil)
+            showOk()
+
+        } catch {
+            log.error("Action failed: \(error.localizedDescription)")
+            setImage(toImage: "error", withExtension: "svg", subdirectory: "imgs/actions/actionname")
+            setTitle(to: settings.showTitle ? "Error" : nil, target: nil, state: nil)
+            showAlert()
+        }
+
+        // Reset after delay
+        try? await Task.sleep(for: .seconds(2))
+        isProcessing = false
+        updateDisplay(settings: settings)
+    }
+
+    // MARK: - Display Updates
+
+    private func updateDisplay(settings: Settings) {
+        setImage(toImage: "state", withExtension: "svg", subdirectory: "imgs/actions/actionname")
+        setTitle(to: settings.showTitle ? "Ready" : nil, target: nil, state: nil)
+    }
+
+    // MARK: - Polling (Optional)
+
+    private func startPolling(interval: TimeInterval = 3.0) {
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + interval, repeating: interval)
+        timer.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            Task {
+                await self.refreshData()
+            }
+        }
+        timer.resume()
+        pollingTimer = timer
+    }
+
+    private func stopPolling() {
+        pollingTimer?.cancel()
+        pollingTimer = nil
+    }
+
+    private func refreshData() async {
+        // Poll for updates
+    }
 }
 ```
 
-**Pattern 2: Extract Sendable Data Before TaskGroup**
+### After Adding an Action
+
+1. Register it in the plugin's `@ActionBuilder`:
+   ```swift
+   @ActionBuilder
+   static var actions: [any Action.Type] {
+       ExistingAction.self
+       YourNewAction.self  // Add here
+   }
+   ```
+
+2. Add to `manifest.json` in the `Actions` array
+
+3. Create image assets in `imgs/actions/actionname/`
+
+4. Create Property Inspector HTML in `ui/actionname.html`
+
+---
+
+## Swift 6 Concurrency Requirements
+
+### CRITICAL: Sendable Conformance
+
+All types that cross async boundaries MUST be `Sendable`.
+
 ```swift
-// ✅ GOOD: Extract Sendable components
+// ✅ GOOD: Sendable types in TaskGroup
+await withTaskGroup(of: String.self) { group in ... }
+await withTaskGroup(of: (String, Bool).self) { group in ... }
+await withTaskGroup(of: MySendableStruct.self) { group in ... }
+
+// ❌ BAD: Non-Sendable types
+await withTaskGroup(of: [String: Any].self) { group in ... }  // Any is not Sendable!
+await withTaskGroup(of: SomeClass.self) { group in ... }      // Classes need @unchecked Sendable
+```
+
+### Sendable Reference
+
+| Type | Sendable? | Notes |
+|------|-----------|-------|
+| `String`, `Int`, `Bool` | ✅ Yes | Value types |
+| `Array<T>`, `Dictionary<K,V>`, `Set<T>` | ✅ If T/K/V are Sendable | |
+| Custom `struct` | ✅ If marked `Sendable` | All properties must be Sendable |
+| `Any`, `AnyObject` | ❌ No | Never use in async contexts |
+| `[String: Any]` | ❌ No | Any makes it non-Sendable |
+| Classes | ❌ No | Unless marked `@unchecked Sendable` |
+| Actors | ✅ Yes | Always Sendable |
+
+### Pattern: Extract Sendable Data
+
+```swift
+// Instead of passing complex objects through TaskGroup:
 struct DiskInfo: Sendable {
     let identifier: String
     let isExternal: Bool
 }
 
-let infos = await withTaskGroup(of: DiskInfo.self) { group in
-    // Custom Sendable struct is safe
+let results = await withTaskGroup(of: DiskInfo.self) { group in
+    for disk in disks {
+        group.addTask {
+            DiskInfo(identifier: disk.id, isExternal: disk.checkIfExternal())
+        }
+    }
+    return await group.reduce(into: []) { $0.append($1) }
 }
 ```
 
-**Pattern 3: Avoid Dictionaries with Any**
+### Mental Compilation Checklist
+
+Before committing Swift code:
+```
+☐ All TaskGroup types are Sendable
+☐ No [String: Any] dictionaries crossing async boundaries
+☐ No implicit captures of non-Sendable data
+☐ Actor isolation boundaries are respected
+☐ All async functions have proper await calls
+```
+
+---
+
+## Build & Distribution
+
+### Development Workflow
+
+```bash
+# 1. Make code changes
+# 2. Build and install
+cd swift-plugin && ./build.sh --install
+
+# 3. Restart plugin (no need to restart Stream Deck app)
+streamdeck restart org.yourorg.pluginname
+
+# 4. View logs
+log stream --predicate 'subsystem == "org.yourorg.pluginname"' --level debug
+```
+
+### Install Stream Deck CLI
+
+```bash
+npm install -g @elgato/cli
+```
+
+### Package for Distribution
+
+```bash
+# Using Stream Deck CLI (recommended)
+streamdeck pack org.yourorg.pluginname.sdPlugin
+
+# Output: org.yourorg.pluginname.streamDeckPlugin
+```
+
+### Distribution Checklist
+
+```
+☐ Version bumped in Plugin.swift and manifest.json
+☐ All assets included (imgs/, ui/)
+☐ Binary compiled for release
+☐ Tested on clean install
+☐ README updated with installation instructions
+```
+
+---
+
+## Testing Strategy
+
+### Unit Tests with Swift Testing
+
 ```swift
-// ❌ BAD
-withTaskGroup(of: [String: Any].self) // Not Sendable!
+// Tests/YourPluginNameTests/DisplayLogicTests.swift
 
-// ✅ GOOD
-withTaskGroup(of: (String, String, Bool).self) // All Sendable
-// Or create custom Sendable struct
+import Testing
+@testable import YourPluginName
+
+@Suite("Display Title Tests")
+struct DisplayTitleTests {
+
+    @Test("Shows correct title for count")
+    func titleForCount() {
+        #expect(formatTitle(count: 0) == "No Items")
+        #expect(formatTitle(count: 1) == "1 Item")
+        #expect(formatTitle(count: 5) == "5 Items")
+    }
+
+    @Test("Respects showTitle setting")
+    func showTitleSetting() {
+        #expect(formatTitle(count: 3, showTitle: false) == nil)
+    }
+}
+```
+
+### Run Tests
+
+```bash
+cd swift-plugin
+swift test
+```
+
+### Integration Testing
+
+Since Stream Deck plugins require the Stream Deck application:
+
+1. **Manual testing**: Build, install, test in Stream Deck
+2. **Mocking**: Create protocols for external dependencies
+3. **Logging**: Use OSLog for debugging production issues
+
+---
+
+## Common Patterns
+
+### Pattern 1: Polling for Updates
+
+```swift
+private var pollingTimer: DispatchSourceTimer?
+
+func startPolling() {
+    let timer = DispatchSource.makeTimerSource(queue: .main)
+    timer.schedule(deadline: .now() + 3.0, repeating: 3.0)
+    timer.setEventHandler { [weak self] in
+        Task { await self?.refresh() }
+    }
+    timer.resume()
+    pollingTimer = timer
+}
+
+func stopPolling() {
+    pollingTimer?.cancel()
+    pollingTimer = nil
+}
+```
+
+### Pattern 2: Preventing Concurrent Operations
+
+```swift
+extension GlobalSettings {
+    @Entry var isProcessing: Bool = false
+}
+
+class MyAction: KeyAction {
+    @GlobalSetting(\.isProcessing) var isProcessing: Bool
+
+    func keyUp(...) {
+        guard !isProcessing else { return }
+        Task { @MainActor in
+            isProcessing = true
+            defer { isProcessing = false }
+            await doWork()
+        }
+    }
+}
+```
+
+### Pattern 3: Timeout for Async Operations
+
+```swift
+func withTimeout<T: Sendable>(
+    seconds: TimeInterval,
+    operation: @escaping @Sendable () async throws -> T
+) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask { try await operation() }
+        group.addTask {
+            try await Task.sleep(for: .seconds(seconds))
+            throw TimeoutError()
+        }
+        let result = try await group.next()!
+        group.cancelAll()
+        return result
+    }
+}
+```
+
+### Pattern 4: Error Title Formatting
+
+```swift
+func formatErrorTitle(_ error: Error) -> String {
+    switch error {
+    case let e as PermissionError:
+        return "Grant\nAccess"
+    case let e as BusyError:
+        return "In Use"
+    case let e as TimeoutError:
+        return "Timeout"
+    default:
+        return "Error"
+    }
+}
 ```
 
 ---
 
-## Repository-Specific Guidelines
+## Troubleshooting
 
-### File Naming Conventions
+### Plugin Doesn't Load
 
-- **This file:** `CLAUDE.md` (all caps)
-- **User documentation:** `README.md`, `TESTING.md`, etc.
-- **Implementation docs:** `PERFORMANCE_ANALYSIS.md`, `BENCHMARK_FIXES.md`
+1. Check binary exists: `ls org.yourorg.pluginname.sdPlugin/org.yourorg.pluginname`
+2. Check manifest.json `CodePath` matches binary name (no `bin/` prefix)
+3. Check Stream Deck logs: `tail -f ~/Library/Logs/com.elgato.StreamDeck/StreamDeck0.log`
+4. Verify plugin installed: `ls ~/Library/Application\ Support/com.elgato.StreamDeck/Plugins/`
 
-### Swift Project Structure
+### Actions Don't Appear
 
-- **Main binary:** `swift/Sources/EjectDisks.swift`
-- **Library:** `swift/Packages/SwiftDiskArbitration/`
-- **Build script:** `swift/build.sh`
-- **Binary output:** `org.deverman.ejectalldisks.sdPlugin/bin/eject-disks`
+1. Verify action UUID in Swift matches manifest.json
+2. Check action is registered in `@ActionBuilder`
+3. Restart Stream Deck application (not just plugin)
 
-### Benchmark Scripts
+### Button Doesn't Update
 
-- **Main suite:** `benchmark/benchmark-suite.sh`
-- **Debug scripts:** `benchmark/debug-*.sh`
-- **Test scripts:** `benchmark/test-*.sh`
-- **Results:** `benchmark/results/`
+1. Ensure code runs on main thread: `Task { @MainActor in ... }`
+2. Check setImage/setTitle are called with correct paths
+3. Verify image files exist in installed plugin
 
-### Git Workflow
+### Build Errors
 
-- **Branch naming:** `claude/analyze-competitor-plugin-Jc7fU` (specific to session)
-- **Always push after commit** (stop-hook will catch unpushed commits)
-- **Commit early, commit often**
-- **Never force push to main/master**
+| Error | Solution |
+|-------|----------|
+| "Type does not conform to Sendable" | Use Sendable types or create custom Sendable struct |
+| "Cannot find type 'KeyAction'" | Import StreamDeck |
+| "Actor-isolated property" | Use `@MainActor` or `nonisolated` appropriately |
 
 ---
 
-## Quality Checklist
+## Validation Checklists
 
-Before marking any task complete:
+### Before Committing Swift Code
 
 ```
-☐ Code compiles (mental check for Swift)
-☐ Scripts have correct syntax (quotes, pipes, heredocs)
-☐ All changes are committed
-☐ All commits are pushed
-☐ Documentation is updated if needed
-☐ User feedback is incorporated
-☐ No known bugs or issues
-☐ Proactive suggestions offered
+☐ All TaskGroup types are Sendable
+☐ No [String: Any] crossing async boundaries
+☐ Actor isolation is correct
+☐ async/await calls are proper
+☐ No implicit captures of mutable state
+```
+
+### Before Releasing Plugin
+
+```
+☐ Version number updated
+☐ All tests pass: swift test
+☐ Builds for release: swift build -c release
+☐ Installs correctly: ./build.sh --install
+☐ Plugin restarts: streamdeck restart org.yourorg.pluginname
+☐ All actions work as expected
+☐ Error states display correctly
+☐ README is accurate
+☐ Package creates: streamdeck pack org.yourorg.pluginname.sdPlugin
+```
+
+### Before Pushing
+
+```
+☐ All changes committed
+☐ All commits pushed
+☐ No build artifacts in commit (.build/, *.o)
 ```
 
 ---
 
-## Reflection: How This Session Could Have Been Better
+## Resources
 
-### What Went Wrong:
-1. Swift Sendable errors (wasted 10+ min)
-2. AppleScript syntax errors (wasted 15+ min)
-3. Unnecessary detection method pivots (wasted 20+ min)
-4. Wrong file naming (wasted 5+ min)
-5. Not proactively suggesting mount automation (wasted potential)
-
-**Total Waste:** ~50+ minutes of user time
-
-### What Should Have Happened:
-
-**Ideal Flow:**
-1. User asks about Jettison automation
-2. I research Jettison AppleScript API first
-3. I validate Swift mount code for Sendable conformance
-4. I commit working, tested code
-5. User pulls, builds, runs successfully first time
-6. Benchmark runs fully automated with no manual intervention
-
-**Result:** Task complete in 1/3 the time, zero frustration
-
-### Key Takeaway:
-
-**Measure twice, cut once.**
-- Research before implementing
-- Validate before committing
-- Think before coding
-
-The time spent validating upfront is ALWAYS less than the time wasted fixing preventable errors.
+- [StreamDeckPlugin Library](https://github.com/emorydunn/StreamDeckPlugin)
+- [Stream Deck SDK Documentation](https://docs.elgato.com/sdk/)
+- [Stream Deck CLI](https://www.npmjs.com/package/@elgato/cli)
+- [Swift Concurrency Guide](https://docs.swift.org/swift-book/LanguageGuide/Concurrency.html)
 
 ---
 
-## Commitment to Excellence
-
-This document exists because I failed to meet the standard expected of a professional AI assistant. These failures:
-- Wasted the user's valuable time
-- Created frustration and back-and-forth
-- Broke trust in my ability to deliver quality code
-
-**Going forward:**
-- Every commit will be validated before pushing
-- Every API will be researched before using
-- Every assumption will be tested before relying on it
-- Every opportunity for improvement will be surfaced proactively
-
-**The user deserves code that works the first time, every time.**
-
-This is my commitment.
-
----
-
-*This document should be consulted before every coding session and updated with new lessons learned.*
+*This document should be consulted before every plugin development session.*
