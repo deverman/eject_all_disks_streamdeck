@@ -2,8 +2,9 @@
 #
 # Build script for the Swift-native Stream Deck plugin
 #
-# This script builds the EjectAllDisksPlugin and copies the binary
-# to the plugin bundle directory.
+# Usage:
+#   ./build.sh          - Build only (for development)
+#   ./build.sh --install - Build and install to Stream Deck
 #
 
 set -e
@@ -27,47 +28,31 @@ cd "$SCRIPT_DIR"
 echo -e "${YELLOW}Running swift build...${NC}"
 swift build -c release
 
-# Check if build succeeded
-if [ $? -ne 0 ]; then
-    echo -e "${RED}Build failed!${NC}"
-    exit 1
-fi
-
 echo -e "${GREEN}Build succeeded!${NC}"
 
-# Find the binary
-BINARY_PATH="$SCRIPT_DIR/.build/release/org.deverman.ejectalldisks"
+# Install to Stream Deck if requested
+if [ "$1" == "--install" ]; then
+    echo ""
+    echo -e "${YELLOW}Installing to Stream Deck...${NC}"
 
-if [ ! -f "$BINARY_PATH" ]; then
-    echo -e "${RED}Binary not found at: $BINARY_PATH${NC}"
-    exit 1
+    # Export plugin with generated manifest
+    swift run org.deverman.ejectalldisks export org.deverman.ejectalldisks \
+        --generate-manifest \
+        --copy-executable
+
+    # Copy assets (images and UI)
+    INSTALL_DIR="$HOME/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin"
+    cp -r "$PLUGIN_DIR/imgs" "$INSTALL_DIR/"
+    cp -r "$PLUGIN_DIR/ui" "$INSTALL_DIR/"
+
+    echo -e "${GREEN}Plugin installed!${NC}"
+    echo ""
+    echo "To activate, restart the plugin:"
+    echo "  npx streamdeck restart org.deverman.ejectalldisks"
+else
+    echo ""
+    echo -e "${GREEN}Build complete!${NC}"
+    echo ""
+    echo "To install the plugin to Stream Deck:"
+    echo "  ./build.sh --install"
 fi
-
-# Create bin directory if it doesn't exist
-mkdir -p "$PLUGIN_DIR/bin"
-
-# Copy the binary to the plugin bundle
-echo -e "${YELLOW}Copying binary to plugin bundle...${NC}"
-cp "$BINARY_PATH" "$PLUGIN_DIR/bin/"
-
-# Make sure it's executable
-chmod +x "$PLUGIN_DIR/bin/org.deverman.ejectalldisks"
-
-echo -e "${GREEN}Binary copied to: $PLUGIN_DIR/bin/org.deverman.ejectalldisks${NC}"
-
-# Optionally update manifest to use Swift binary
-if [ "$1" == "--update-manifest" ]; then
-    echo -e "${YELLOW}Updating manifest.json to use Swift binary...${NC}"
-    cp "$PLUGIN_DIR/manifest-swift.json" "$PLUGIN_DIR/manifest.json"
-    echo -e "${GREEN}Manifest updated!${NC}"
-fi
-
-echo ""
-echo -e "${GREEN}Build complete!${NC}"
-echo ""
-echo "To test the plugin:"
-echo "  1. Close Stream Deck application"
-echo "  2. Run: ./build.sh --update-manifest"
-echo "  3. Open Stream Deck application"
-echo "  4. Add the 'Eject All Disks' action to a button"
-echo ""

@@ -43,11 +43,17 @@ class EjectAction: KeyAction {
     var context: String
     var coordinates: StreamDeck.Coordinates?
 
-    /// Access to global disk count
-    @GlobalSetting(\.diskCount) var diskCount: Int
-
     /// Access to global ejecting state
     @GlobalSetting(\.isEjecting) var isEjecting: Bool
+
+    /// Timer for polling disk count
+    private var pollingTimer: DispatchSourceTimer?
+
+    /// Current disk count (locally tracked)
+    private var diskCount: Int = 0
+
+    /// Cached showTitle setting
+    private var showTitle: Bool = true
 
     // MARK: - Initialization
 
@@ -62,24 +68,59 @@ class EjectAction: KeyAction {
         log.info("Action appeared on device \(device)")
 
         let showTitle = payload.settings.showTitle
-        updateDisplay(showTitle: showTitle)
+
+        // Start polling for disk count
+        startPolling(showTitle: showTitle)
     }
 
     func willDisappear(device: String, payload: AppearEvent<Settings>) {
         log.info("Action disappeared from device \(device)")
+        stopPolling()
+    }
+
+    // MARK: - Disk Count Polling
+
+    private func startPolling(showTitle: Bool) {
+        self.showTitle = showTitle
+
+        // Initial update
+        Task {
+            await refreshDiskCount()
+        }
+
+        // Poll every 3 seconds using DispatchSourceTimer
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + 3.0, repeating: 3.0)
+        timer.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            Task {
+                await self.refreshDiskCount()
+            }
+        }
+        timer.resume()
+        pollingTimer = timer
+    }
+
+    private func stopPolling() {
+        pollingTimer?.cancel()
+        pollingTimer = nil
+    }
+
+    private func refreshDiskCount() async {
+        let count = await DiskSession.shared.ejectableVolumeCount()
+        if count != self.diskCount {
+            self.diskCount = count
+            log.debug("Disk count updated: \(count)")
+            updateDisplay(showTitle: self.showTitle)
+        }
     }
 
     // MARK: - Settings Events
 
     func didReceiveSettings(device: String, payload: SettingsEvent<Settings>.Payload) {
-        let showTitle = payload.settings.showTitle
-        updateDisplay(showTitle: showTitle)
-        log.debug("Settings updated: showTitle=\(showTitle)")
-    }
-
-    func didReceiveGlobalSettings() {
-        log.debug("Global settings changed, disk count: \(self.diskCount)")
-        updateDisplay(showTitle: true)
+        self.showTitle = payload.settings.showTitle
+        updateDisplay(showTitle: self.showTitle)
+        log.debug("Settings updated: showTitle=\(self.showTitle)")
     }
 
     // MARK: - Key Events
@@ -150,8 +191,11 @@ class EjectAction: KeyAction {
         try? await Task.sleep(for: .seconds(2))
 
         isEjecting = false
+
+        // Refresh disk count immediately before updating display
+        self.diskCount = await DiskSession.shared.ejectableVolumeCount()
         updateDisplay(showTitle: showTitle)
-        log.info("Display reset to normal state")
+        log.info("Display reset to normal state, disk count: \(self.diskCount)")
     }
 
     // MARK: - Display Updates
