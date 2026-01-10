@@ -58,6 +58,12 @@
 import DiskArbitration
 import Foundation
 
+// MARK: - Timeout Configuration
+
+/// Timeout for disk operations in seconds.
+/// This prevents the plugin from hanging indefinitely if a drive is unresponsive.
+internal let diskOperationTimeoutSeconds: TimeInterval = 30.0
+
 /// Result of an unmount or eject operation
 public struct DiskOperationResult: Sendable {
   /// Whether the operation succeeded
@@ -187,7 +193,7 @@ internal let ejectCallback: DADiskEjectCallback = { disk, dissenter, context in
 
 // MARK: - Async Wrappers
 
-/// Unmounts a disk asynchronously using DADiskUnmount
+/// Unmounts a disk asynchronously using DADiskUnmount with timeout protection.
 ///
 /// Thread Safety: DADisk is a Core Foundation type that is thread-safe.
 /// This nonisolated function can be safely called from any isolation domain.
@@ -195,20 +201,44 @@ internal let ejectCallback: DADiskEjectCallback = { disk, dissenter, context in
 /// - Parameters:
 ///   - disk: The DADisk to unmount (thread-safe CFType)
 ///   - options: Unmount options (default or force)
+///   - timeout: Maximum time to wait for the operation (default: 30 seconds)
 /// - Returns: Result of the unmount operation
 nonisolated internal func unmountDiskAsync(
   _ disk: DADisk,
-  options: DADiskUnmountOptions = DADiskUnmountOptions(kDADiskUnmountOptionDefault)
+  options: DADiskUnmountOptions = DADiskUnmountOptions(kDADiskUnmountOptionDefault),
+  timeout: TimeInterval = diskOperationTimeoutSeconds
 ) async -> DiskOperationResult {
-  await withCheckedContinuation { continuation in
-    let context = UnmountCallbackContext(continuation: continuation)
-    let contextPtr = Unmanaged.passRetained(context).toOpaque()
+  let startTime = Date()
 
-    DADiskUnmount(disk, options, unmountCallback, contextPtr)
+  // Race the actual operation against a timeout
+  return await withTaskGroup(of: DiskOperationResult.self) { group in
+    // Task 1: The actual unmount operation
+    group.addTask {
+      await withCheckedContinuation { continuation in
+        let context = UnmountCallbackContext(continuation: continuation)
+        let contextPtr = Unmanaged.passRetained(context).toOpaque()
+        DADiskUnmount(disk, options, unmountCallback, contextPtr)
+      }
+    }
+
+    // Task 2: Timeout watchdog
+    group.addTask {
+      try? await Task.sleep(for: .seconds(timeout))
+      return DiskOperationResult(
+        success: false,
+        error: .timeout,
+        duration: Date().timeIntervalSince(startTime)
+      )
+    }
+
+    // Return whichever finishes first
+    let result = await group.next()!
+    group.cancelAll()
+    return result
   }
 }
 
-/// Ejects a disk asynchronously using DADiskEject
+/// Ejects a disk asynchronously using DADiskEject with timeout protection.
 ///
 /// Thread Safety: DADisk is a Core Foundation type that is thread-safe.
 /// This nonisolated function can be safely called from any isolation domain.
@@ -216,16 +246,40 @@ nonisolated internal func unmountDiskAsync(
 /// - Parameters:
 ///   - disk: The DADisk to eject (should be whole disk for physical ejection, thread-safe CFType)
 ///   - options: Eject options
+///   - timeout: Maximum time to wait for the operation (default: 30 seconds)
 /// - Returns: Result of the eject operation
 nonisolated internal func ejectDiskAsync(
   _ disk: DADisk,
-  options: DADiskEjectOptions = DADiskEjectOptions(kDADiskEjectOptionDefault)
+  options: DADiskEjectOptions = DADiskEjectOptions(kDADiskEjectOptionDefault),
+  timeout: TimeInterval = diskOperationTimeoutSeconds
 ) async -> DiskOperationResult {
-  await withCheckedContinuation { continuation in
-    let context = EjectCallbackContext(continuation: continuation)
-    let contextPtr = Unmanaged.passRetained(context).toOpaque()
+  let startTime = Date()
 
-    DADiskEject(disk, options, ejectCallback, contextPtr)
+  // Race the actual operation against a timeout
+  return await withTaskGroup(of: DiskOperationResult.self) { group in
+    // Task 1: The actual eject operation
+    group.addTask {
+      await withCheckedContinuation { continuation in
+        let context = EjectCallbackContext(continuation: continuation)
+        let contextPtr = Unmanaged.passRetained(context).toOpaque()
+        DADiskEject(disk, options, ejectCallback, contextPtr)
+      }
+    }
+
+    // Task 2: Timeout watchdog
+    group.addTask {
+      try? await Task.sleep(for: .seconds(timeout))
+      return DiskOperationResult(
+        success: false,
+        error: .timeout,
+        duration: Date().timeIntervalSince(startTime)
+      )
+    }
+
+    // Return whichever finishes first
+    let result = await group.next()!
+    group.cancelAll()
+    return result
   }
 }
 

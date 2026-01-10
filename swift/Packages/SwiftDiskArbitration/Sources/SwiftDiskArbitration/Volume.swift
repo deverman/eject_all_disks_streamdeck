@@ -237,6 +237,13 @@ extension Volume {
         continue
       }
 
+      // Skip network volumes (SMB, AFP, NFS mounts)
+      // Users don't expect "Eject All Disks" to unmount their network shares
+      let isLocal = resourceValues.volumeIsLocal ?? true
+      guard isLocal else {
+        continue
+      }
+
       let isEjectable = resourceValues.volumeIsEjectable ?? false
       let isRemovable = resourceValues.volumeIsRemovable ?? false
       let isInternal = resourceValues.volumeIsInternal ?? true

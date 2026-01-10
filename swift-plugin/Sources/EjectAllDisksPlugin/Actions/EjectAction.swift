@@ -220,8 +220,13 @@ class EjectAction: KeyAction {
                     showOk()
                 } else {
                     setImage(toImage: "error", withExtension: "svg", subdirectory: "imgs/actions/eject")
-                    setTitle(to: showTitle ? "Error" : nil, target: nil, state: nil)
+                    // Show detailed error: "1 of 3 Failed" or specific error type
+                    let errorTitle = formatErrorTitle(result: result, showTitle: showTitle)
+                    setTitle(to: errorTitle, target: nil, state: nil)
                     showAlert()
+
+                    // Log helpful message if permission-related
+                    logPermissionHint(result: result)
                 }
             }
         } catch {
@@ -266,6 +271,59 @@ class EjectAction: KeyAction {
         log.info("Eject completed: \(result.successCount)/\(result.totalCount) succeeded")
         if result.failedCount > 0 {
             log.warning("\(result.failedCount) volume(s) failed to eject")
+        }
+    }
+
+    /// Formats a user-friendly error title based on the eject result
+    /// Shows specific information like "1 of 3 Failed" or error type hints
+    private func formatErrorTitle(result: BatchEjectResult, showTitle: Bool) -> String? {
+        guard showTitle else { return nil }
+
+        // Check if all failures are permission-related (suggests missing FDA)
+        let permissionErrors = result.results.filter { r in
+            guard let msg = r.errorMessage else { return false }
+            return msg.contains("ermission") || msg.contains("rivileged") || msg.contains("Not permitted")
+        }
+
+        // If ALL failures are permission errors, suggest granting FDA
+        if permissionErrors.count == result.failedCount && result.failedCount > 0 {
+            return "Grant\nAccess"
+        }
+
+        // If all failed, show count
+        if result.successCount == 0 {
+            if result.totalCount == 1 {
+                // Single disk failed - try to show why
+                if let firstResult = result.results.first,
+                   let errorMsg = firstResult.errorMessage {
+                    // Extract short error hint
+                    if errorMsg.contains("busy") || errorMsg.contains("Busy") {
+                        return "In Use"
+                    } else if errorMsg.contains("timeout") || errorMsg.contains("Timeout") {
+                        return "Timeout"
+                    }
+                }
+                return "Failed"
+            } else {
+                return "All Failed"
+            }
+        }
+
+        // Partial failure - show X of Y
+        return "\(result.failedCount) of \(result.totalCount)\nFailed"
+    }
+
+    /// Logs a helpful message if failures appear to be permission-related
+    /// Suggests granting Full Disk Access in System Settings
+    private func logPermissionHint(result: BatchEjectResult) {
+        let permissionErrors = result.results.filter { r in
+            guard let msg = r.errorMessage else { return false }
+            return msg.contains("ermission") || msg.contains("rivileged") || msg.contains("Not permitted")
+        }
+
+        if permissionErrors.count > 0 {
+            log.error("Permission denied for \(permissionErrors.count) disk(s). Grant Full Disk Access:")
+            log.error("  System Settings → Privacy & Security → Full Disk Access → Add Stream Deck")
         }
     }
 }
