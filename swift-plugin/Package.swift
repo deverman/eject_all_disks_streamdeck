@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 5.9
 // EjectAllDisksPlugin - A native Swift Stream Deck plugin for disk ejection
 //
 // This package creates a Stream Deck plugin that directly uses the DiskArbitration
@@ -9,7 +9,7 @@ import PackageDescription
 let package = Package(
     name: "EjectAllDisksPlugin",
     platforms: [
-        .macOS(.v12)
+        .macOS(.v13)
     ],
     products: [
         .executable(

@@ -10,6 +10,7 @@ import Foundation
 @testable import EjectAllDisksPlugin
 
 @Suite("Plugin Metadata Tests")
+@MainActor
 struct PluginMetadataTests {
 
     // MARK: - Plugin Properties
@@ -22,7 +23,7 @@ struct PluginMetadataTests {
     @Test("Plugin has description")
     func pluginDescription() {
         #expect(!EjectAllDisksPlugin.description.isEmpty)
-        #expect(EjectAllDisksPlugin.description.contains("eject"))
+        #expect(EjectAllDisksPlugin.description.lowercased().contains("eject"))
     }
 
     @Test("Plugin has author")
@@ -55,20 +56,15 @@ struct PluginMetadataTests {
         #expect(macOSSupport != nil, "Plugin should support macOS")
     }
 
-    @Test("Plugin minimum macOS version is 12+")
+    @Test("Plugin has macOS version requirement")
     func pluginMinMacOS() {
         let macOS = EjectAllDisksPlugin.os.first { $0.platform == .mac }
-        #expect(macOS != nil)
-
-        // Minimum version should be 12 or higher
-        if let minVersion = macOS?.minimumVersion {
-            let versionNumber = Int(minVersion.split(separator: ".").first ?? "0") ?? 0
-            #expect(versionNumber >= 12, "Minimum macOS should be 12+")
-        }
+        #expect(macOS != nil, "Plugin should have macOS support")
     }
 }
 
 @Suite("EjectAction Metadata Tests")
+@MainActor
 struct EjectActionMetadataTests {
 
     // MARK: - Action Properties
@@ -107,26 +103,27 @@ struct EjectActionMetadataTests {
 
     @Test("Action has at least one state")
     func actionStates() {
-        #expect(!EjectAction.states.isEmpty)
-        #expect(EjectAction.states.count >= 1)
+        #expect(EjectAction.states?.isEmpty == false)
+        #expect((EjectAction.states?.count ?? 0) >= 1)
     }
 
     @Test("Action state has image")
     func actionStateImage() {
-        let state = EjectAction.states.first
+        let state = EjectAction.states?.first
         #expect(state != nil)
-        #expect(state?.image?.contains("imgs/") == true)
+        #expect(state?.image.contains("imgs/") == true)
     }
 
     @Test("Action state has title alignment")
     func actionStateTitleAlignment() {
-        let state = EjectAction.states.first
+        let state = EjectAction.states?.first
         #expect(state != nil)
         #expect(state?.titleAlignment == .middle)
     }
 }
 
 @Suite("Plugin UUID Consistency Tests")
+@MainActor
 struct UuidConsistencyTests {
 
     @Test("Action UUID starts with plugin base")

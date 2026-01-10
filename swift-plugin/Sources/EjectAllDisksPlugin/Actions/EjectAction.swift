@@ -9,19 +9,18 @@
 import Foundation
 import StreamDeck
 import SwiftDiskArbitration
-import os.log
+import OSLog
 
 /// Logger for action events
-private let log = Logger(subsystem: "org.deverman.ejectalldisks", category: "action")
+fileprivate let log = Logger(subsystem: "org.deverman.ejectalldisks", category: "action")
 
 /// Settings for the Eject action
 struct EjectActionSettings: Codable, Hashable, Sendable {
-    /// Whether to show the title on the button
     var showTitle: Bool = true
 }
 
 /// Stream Deck action for ejecting all external disks
-struct EjectAction: KeyAction {
+class EjectAction: KeyAction {
 
     // MARK: - Action Metadata
 
@@ -32,21 +31,12 @@ struct EjectAction: KeyAction {
     static var icon: String = "imgs/actions/eject/icon"
     static var propertyInspectorPath: String? = "ui/eject-all-disks.html"
 
-    static var states: [PluginActionState] = [
+    static var states: [PluginActionState]? = [
         PluginActionState(
             image: "imgs/actions/eject/state",
             titleAlignment: .middle
         )
     ]
-
-    // MARK: - Static Image Paths
-
-    private enum Images {
-        static let normal = "imgs/actions/eject/state"
-        static let ejecting = "imgs/actions/eject/ejecting"
-        static let success = "imgs/actions/eject/success"
-        static let error = "imgs/actions/eject/error"
-    }
 
     // MARK: - Instance Properties
 
@@ -61,7 +51,7 @@ struct EjectAction: KeyAction {
 
     // MARK: - Initialization
 
-    init(context: String, coordinates: StreamDeck.Coordinates?) {
+    required init(context: String, coordinates: StreamDeck.Coordinates?) {
         self.context = context
         self.coordinates = coordinates
     }
@@ -71,7 +61,7 @@ struct EjectAction: KeyAction {
     func willAppear(device: String, payload: AppearEvent<Settings>) {
         log.info("Action appeared on device \(device)")
 
-        let showTitle = payload.settings?.showTitle ?? true
+        let showTitle = payload.settings.showTitle
         updateDisplay(showTitle: showTitle)
     }
 
@@ -88,15 +78,16 @@ struct EjectAction: KeyAction {
     }
 
     func didReceiveGlobalSettings() {
-        // Update title when global disk count changes
-        let showTitle = true // Default, actual value comes from settings
-        updateDisplay(showTitle: showTitle)
+        log.debug("Global settings changed, disk count: \(self.diskCount)")
+        updateDisplay(showTitle: true)
     }
 
     // MARK: - Key Events
 
-    func keyDown(device: String, payload: KeyEvent<Settings>) {
-        log.info("Key down - starting eject operation")
+    func keyUp(device: String, payload: KeyEvent<Settings>, longPress: Bool) {
+        if longPress { return }
+
+        log.info("Key up - starting eject operation")
 
         // Prevent multiple simultaneous eject operations
         guard !isEjecting else {
@@ -107,13 +98,9 @@ struct EjectAction: KeyAction {
         let showTitle = payload.settings.showTitle
 
         // Start async eject operation
-        Task {
+        Task { @MainActor in
             await performEject(showTitle: showTitle)
         }
-    }
-
-    func keyUp(device: String, payload: KeyEvent<Settings>) {
-        // No action needed on key up
     }
 
     // MARK: - Eject Operation
@@ -124,8 +111,8 @@ struct EjectAction: KeyAction {
         isEjecting = true
 
         // Show ejecting state
-        setImage(to: Images.ejecting)
-        setTitle(showTitle ? "Ejecting..." : "")
+        setImage(toImage: "ejecting", withExtension: "svg", subdirectory: "imgs/actions/eject")
+        setTitle(to: showTitle ? "Ejecting..." : nil, target: nil, state: nil)
 
         do {
             let session = try DiskSession()
@@ -133,8 +120,8 @@ struct EjectAction: KeyAction {
 
             if volumes.isEmpty {
                 log.info("No disks to eject")
-                setImage(to: Images.success)
-                setTitle(showTitle ? "No Disks" : "")
+                setImage(toImage: "success", withExtension: "svg", subdirectory: "imgs/actions/eject")
+                setTitle(to: showTitle ? "No Disks" : nil, target: nil, state: nil)
                 showOk()
             } else {
                 log.info("Ejecting \(volumes.count) volume(s)")
@@ -143,19 +130,19 @@ struct EjectAction: KeyAction {
                 logResults(result)
 
                 if result.failedCount == 0 {
-                    setImage(to: Images.success)
-                    setTitle(showTitle ? "Ejected!" : "")
+                    setImage(toImage: "success", withExtension: "svg", subdirectory: "imgs/actions/eject")
+                    setTitle(to: showTitle ? "Ejected!" : nil, target: nil, state: nil)
                     showOk()
                 } else {
-                    setImage(to: Images.error)
-                    setTitle(showTitle ? "Error" : "")
+                    setImage(toImage: "error", withExtension: "svg", subdirectory: "imgs/actions/eject")
+                    setTitle(to: showTitle ? "Error" : nil, target: nil, state: nil)
                     showAlert()
                 }
             }
         } catch {
             log.error("Failed to create DiskSession: \(error.localizedDescription)")
-            setImage(to: Images.error)
-            setTitle(showTitle ? "Failed" : "")
+            setImage(toImage: "error", withExtension: "svg", subdirectory: "imgs/actions/eject")
+            setTitle(to: showTitle ? "Failed" : nil, target: nil, state: nil)
             showAlert()
         }
 
@@ -171,16 +158,16 @@ struct EjectAction: KeyAction {
 
     /// Updates the display with current state
     private func updateDisplay(showTitle: Bool) {
-        setImage(to: Images.normal)
+        setImage(toImage: "state", withExtension: "svg", subdirectory: "imgs/actions/eject")
 
         if showTitle {
             if diskCount > 0 {
-                setTitle("\(diskCount) Disk\(diskCount == 1 ? "" : "s")")
+                setTitle(to: "\(diskCount) Disk\(diskCount == 1 ? "" : "s")", target: nil, state: nil)
             } else {
-                setTitle("Eject All\nDisks")
+                setTitle(to: "Eject All\nDisks", target: nil, state: nil)
             }
         } else {
-            setTitle("")
+            setTitle(to: nil, target: nil, state: nil)
         }
     }
 

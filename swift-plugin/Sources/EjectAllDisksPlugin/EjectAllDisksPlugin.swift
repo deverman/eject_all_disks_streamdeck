@@ -9,10 +9,10 @@
 import Foundation
 import StreamDeck
 import SwiftDiskArbitration
-import os.log
+import OSLog
 
 /// Logger for plugin events
-private let log = Logger(subsystem: "org.deverman.ejectalldisks", category: "plugin")
+fileprivate let log = Logger(subsystem: "org.deverman.ejectalldisks", category: "plugin")
 
 /// Global settings shared across all actions
 extension GlobalSettings {
@@ -35,9 +35,7 @@ class EjectAllDisksPlugin: Plugin {
     static var icon: String = "imgs/plugin/marketplace"
     static var version: String = "3.0.0"
 
-    static var os: [PluginOS] = [
-        PluginOS(platform: .mac, minimumVersion: "12")
-    ]
+    static var os: [PluginOS] = [.macOS("13")]
 
     // MARK: - Actions
 
@@ -45,6 +43,15 @@ class EjectAllDisksPlugin: Plugin {
     static var actions: [any Action.Type] {
         EjectAction.self
     }
+
+    // MARK: - Layouts
+
+    @LayoutBuilder
+    static var layouts: [Layout] { }
+
+    // MARK: - Instance Properties
+
+    @GlobalSetting(\.diskCount) var diskCount: Int
 
     // MARK: - Disk Monitoring
 
@@ -65,21 +72,24 @@ class EjectAllDisksPlugin: Plugin {
 
     private func startDiskMonitoring() {
         // Initial update
-        Task { await updateDiskCount() }
+        Task {
+            await updateDiskCount()
+        }
 
         // Update every 3 seconds
         monitoringTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
-            Task { await self?.updateDiskCount() }
+            Task {
+                await self?.updateDiskCount()
+            }
         }
 
         log.info("Disk monitoring started")
     }
 
-    @MainActor
     private func updateDiskCount() async {
         let count = await DiskSession.shared.ejectableVolumeCount()
-        if count != GlobalSettings.shared[\.diskCount] {
-            GlobalSettings.shared[\.diskCount] = count
+        if count != diskCount {
+            diskCount = count
             log.debug("Disk count: \(count)")
         }
     }

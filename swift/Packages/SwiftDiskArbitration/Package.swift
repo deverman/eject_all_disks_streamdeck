@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 5.9
 // SwiftDiskArbitration - A modern Swift wrapper for macOS DiskArbitration framework
 //
 // This package provides async/await APIs for disk operations using Apple's
