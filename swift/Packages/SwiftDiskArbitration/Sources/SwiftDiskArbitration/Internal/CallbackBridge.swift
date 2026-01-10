@@ -267,8 +267,9 @@ nonisolated internal func unmountAndEjectAsync(
     }
 
     if debugCallbacks {
+      // PRIVACY: Use BSD name only, not user-visible volume name
       print(
-        "[SwiftDiskArbitration] Step 1: Unmounting whole disk \(wholeDiskBSD) for volume \(volume.info.name) (\(volume.info.bsdName ?? "?"))"
+        "[SwiftDiskArbitration] Step 1: Unmounting whole disk \(wholeDiskBSD) for volume \(volume.info.bsdName ?? "?")"
       )
     }
 
@@ -324,7 +325,8 @@ nonisolated internal func unmountAndEjectAsync(
   }
 
   if debugCallbacks {
-    print("[SwiftDiskArbitration] Using DADiskUnmount for \(volume.info.name)")
+    // PRIVACY: Use BSD name only, not user-visible volume name
+    print("[SwiftDiskArbitration] Using DADiskUnmount for \(volume.info.bsdName ?? "?")")
   }
 
   let unmountResult = await unmountDiskAsync(

@@ -260,14 +260,12 @@ class EjectAction: KeyAction {
     }
 
     /// Logs eject results for debugging
+    /// PRIVACY: We don't log volume names as they may contain sensitive information.
+    /// Volume names like "ConfidentialProject" or "ClientBackup" could reveal user data.
     private func logResults(_ result: BatchEjectResult) {
         log.info("Eject completed: \(result.successCount)/\(result.totalCount) succeeded")
-        for singleResult in result.results {
-            if singleResult.success {
-                log.debug("  [OK] \(singleResult.volumeName)")
-            } else {
-                log.error("  [FAIL] \(singleResult.volumeName): \(singleResult.errorMessage ?? "Unknown error")")
-            }
+        if result.failedCount > 0 {
+            log.warning("\(result.failedCount) volume(s) failed to eject")
         }
     }
 }

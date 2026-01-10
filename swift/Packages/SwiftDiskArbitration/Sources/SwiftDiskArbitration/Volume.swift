@@ -42,11 +42,16 @@
 //    To physically eject the USB, we need the "whole disk" reference.
 //    That's why we cache `wholeDisk` - it's the physical device to eject.
 //
-// 4. VOLUME ENUMERATION LOGIC
-//    We scan /Volumes and filter to find ejectable drives:
-//    - Skip system volumes (Macintosh HD, Recovery, etc.)
-//    - Skip hidden files (starting with ".")
+// 4. VOLUME ENUMERATION LOGIC (SECURITY)
+//    We scan /Volumes and use SYSTEM APIs to filter safely:
+//    - Use .volumeIsRootFileSystemKey to detect boot volume (not name!)
+//    - Use .volumeIsBrowsableKey to detect system-only volumes
+//    - Use DiskArbitration properties as additional safety check
 //    - Include if: external OR ejectable OR removable
+//
+//    WHY NOT USE VOLUME NAMES?
+//    Users can rename "Macintosh HD" to anything they want.
+//    If we filtered by name, we might accidentally eject the boot drive!
 //
 // ============================================================================
 
@@ -151,22 +156,17 @@ public final class Volume: @unchecked Sendable {
 // MARK: - Volume Discovery
 
 extension Volume {
-  /// System volume patterns to exclude from ejection
-  private static let excludedVolumePatterns: Set<String> = [
-    "Macintosh HD",
-    "Macintosh HD - Data",
-    "Recovery",
-    "Preboot",
-    "VM",
-    "Update",
-  ]
-
   /// Enumerates all ejectable external volumes.
   ///
-  /// This method scans /Volumes and returns volumes that are:
-  /// - External (not internal drives)
-  /// - Ejectable or removable
-  /// - Not system volumes
+  /// SECURITY: This method uses macOS system APIs to detect system volumes,
+  /// NOT hardcoded volume names. This ensures safety even if the user has
+  /// renamed their boot drive.
+  ///
+  /// A volume is included if ALL of these are true:
+  /// - NOT the root filesystem (boot volume)
+  /// - NOT a system volume (Recovery, Preboot, VM, etc.)
+  /// - NOT an internal non-ejectable drive
+  /// - IS external OR ejectable OR removable
   ///
   /// Each returned Volume includes a cached DADisk reference for fast ejection.
   ///
@@ -183,17 +183,14 @@ extension Volume {
     var volumes: [Volume] = []
 
     for name in contents {
-      // Skip hidden files
+      // Skip hidden files (e.g., .timemachine, .Spotlight-V100)
       guard !name.hasPrefix(".") else { continue }
 
-      // Skip Apple system volumes
+      // Skip Apple system volumes by prefix (these are internal system things)
       guard !name.hasPrefix("com.apple.") else { continue }
 
-      // Skip Time Machine backups
+      // Skip Time Machine local snapshots
       guard !name.hasPrefix("Backups of ") else { continue }
-
-      // Skip known system volumes
-      guard !excludedVolumePatterns.contains(name) else { continue }
 
       let path = "\(volumesPath)/\(name)"
       let url = URL(fileURLWithPath: path)
@@ -206,22 +203,46 @@ extension Volume {
         continue
       }
 
-      // Get volume properties from the filesystem
-      var isEjectable = false
-      var isRemovable = false
-      var isInternal = true
+      // =====================================================================
+      // SECURITY: Use system APIs to detect protected volumes
+      // This is safer than matching volume names, which users can change.
+      // =====================================================================
 
-      if let resourceValues = try? url.resourceValues(forKeys: [
-        .volumeIsEjectableKey,
-        .volumeIsRemovableKey,
-        .volumeIsInternalKey,
-      ]) {
-        isEjectable = resourceValues.volumeIsEjectable ?? false
-        isRemovable = resourceValues.volumeIsRemovable ?? false
-        isInternal = resourceValues.volumeIsInternal ?? true
+      // Get volume properties from the filesystem using URL resource values
+      // These are the authoritative source for volume characteristics
+      let resourceKeys: Set<URLResourceKey> = [
+        .volumeIsRootFileSystemKey,    // Is this the boot volume?
+        .volumeIsEjectableKey,         // Can this be ejected?
+        .volumeIsRemovableKey,         // Is this removable media?
+        .volumeIsInternalKey,          // Is this an internal drive?
+        .volumeIsLocalKey,             // Is this a local (not network) volume?
+        .volumeIsBrowsableKey,         // Is this browsable by users?
+      ]
+
+      guard let resourceValues = try? url.resourceValues(forKeys: resourceKeys) else {
+        continue
       }
 
+      // CRITICAL: Never eject the root filesystem (boot volume)
+      // This check works regardless of what the user named their drive
+      let isRootFileSystem = resourceValues.volumeIsRootFileSystem ?? false
+      guard !isRootFileSystem else {
+        continue
+      }
+
+      // Skip non-browsable volumes (system-only volumes like Preboot, Recovery)
+      // These are not meant to be user-accessible and should never be ejected
+      let isBrowsable = resourceValues.volumeIsBrowsable ?? true
+      guard isBrowsable else {
+        continue
+      }
+
+      let isEjectable = resourceValues.volumeIsEjectable ?? false
+      let isRemovable = resourceValues.volumeIsRemovable ?? false
+      let isInternal = resourceValues.volumeIsInternal ?? true
+
       // Include if: ejectable OR removable OR external
+      // Internal non-ejectable drives (like a second internal SSD) are excluded
       guard isEjectable || isRemovable || !isInternal else {
         continue
       }
@@ -235,6 +256,12 @@ extension Volume {
           url as CFURL
         )
       else {
+        continue
+      }
+
+      // Additional safety check using DiskArbitration properties
+      // This catches edge cases the URL resource values might miss
+      if isSystemVolume(disk: disk) {
         continue
       }
 
@@ -261,6 +288,42 @@ extension Volume {
     }
 
     return volumes
+  }
+
+  /// Checks if a disk is a system volume using DiskArbitration properties.
+  /// This provides an additional layer of protection beyond URL resource values.
+  private static func isSystemVolume(disk: DADisk) -> Bool {
+    guard let description = DADiskCopyDescription(disk) as? [String: Any] else {
+      // If we can't get the description, be conservative and skip it
+      return true
+    }
+
+    // Note: kDADiskDescriptionVolumeKindKey indicates filesystem type (apfs, hfs, etc.)
+    // but doesn't distinguish system from user volumes, so we rely on other checks
+
+    // Check the volume roles - system volumes have specific roles
+    // This is available on APFS volumes
+    if let mediaContent = description[kDADiskDescriptionMediaContentKey as String] as? String {
+      // Apple_APFS_Recovery, Apple_Boot, etc. are system partitions
+      let systemContentTypes = [
+        "Apple_Boot",
+        "Apple_APFS_Recovery",
+        "Apple_APFS_ISC",
+        "Apple_KernelCoreDump",
+      ]
+      if systemContentTypes.contains(mediaContent) {
+        return true
+      }
+    }
+
+    // Check if the volume is not mountable by users (system-only)
+    if let isMountable = description[kDADiskDescriptionVolumeMountableKey as String] as? Bool {
+      if !isMountable {
+        return true
+      }
+    }
+
+    return false
   }
 
   /// Checks if a disk is a disk image (.dmg)

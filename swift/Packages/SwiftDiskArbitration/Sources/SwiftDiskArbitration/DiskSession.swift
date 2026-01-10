@@ -350,17 +350,8 @@ public actor DiskSession {
     // Group volumes by their physical device
     let deviceGroups = groupVolumesByPhysicalDevice(volumes)
 
-    // Debug: Print grouping information
-    if deviceGroups.count < volumes.count {
-      print(
-        "[DiskSession] Grouped \(volumes.count) volumes into \(deviceGroups.count) physical device(s)"
-      )
-      for group in deviceGroups {
-        print(
-          "  - \(group.wholeDiskBSDName): \(group.volumes.count) volume(s) (\(group.volumes.map { $0.info.name }.joined(separator: ", ")))"
-        )
-      }
-    }
+    // PRIVACY: We don't log volume names as they may contain sensitive information.
+    // Only log counts, not names like "ConfidentialProject" or "ClientBackup".
 
     // Process each physical device in parallel
     let results = await withTaskGroup(

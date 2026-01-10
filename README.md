@@ -17,6 +17,7 @@ A Stream Deck plugin that adds a button to safely eject all external disks on ma
 
 - macOS 13 or later
 - Stream Deck 6.4 or later
+- **Full Disk Access permission** (see [Permissions](#permissions) below)
 - Xcode Command Line Tools (for building from source)
 
 ## Installation
@@ -30,6 +31,29 @@ A Stream Deck plugin that adds a button to safely eject all external disks on ma
 ### From Source
 
 See [Development](#development) section below.
+
+## Permissions
+
+This plugin requires **Full Disk Access** permission to eject disks. Without this permission, disk ejection operations will fail silently or return permission errors.
+
+### Granting Full Disk Access
+
+1. Open **System Settings** (or System Preferences on older macOS)
+2. Navigate to **Privacy & Security** > **Full Disk Access**
+3. Click the **+** button to add an application
+4. Navigate to the Stream Deck application:
+   - `/Applications/Elgato Stream Deck.app`
+5. Enable the toggle next to Stream Deck
+6. Restart the Stream Deck application
+
+Alternatively, if you're running the plugin binary directly for development:
+
+1. Add the plugin binary to Full Disk Access:
+   - `~/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin/bin/org.deverman.ejectalldisks`
+
+### Why Full Disk Access?
+
+The macOS DiskArbitration framework requires elevated permissions to unmount and eject volumes. This is a security feature to prevent malicious apps from ejecting disks without user consent. By granting Full Disk Access to Stream Deck, you're authorizing it to perform disk operations on your behalf.
 
 ## Usage
 
@@ -99,7 +123,7 @@ cd eject_all_disks_streamdeck
 
 ```bash
 cd swift-plugin
-./build.sh --update-manifest
+./build.sh --install
 ```
 
 This compiles the Swift plugin and copies the binary to the plugin bundle.
@@ -155,7 +179,7 @@ tail -f ~/Library/Logs/com.elgato.StreamDeck/StreamDeck0.log
 **Plugin doesn't appear in Stream Deck:**
 
 - Ensure the binary exists: `ls org.deverman.ejectalldisks.sdPlugin/bin/`
-- Run `./build.sh --update-manifest` to update the manifest
+- Run `./build.sh --install` to update the manifest
 - Restart Stream Deck application completely
 - Check that `manifest.json` has correct paths
 
@@ -175,7 +199,7 @@ tail -f ~/Library/Logs/com.elgato.StreamDeck/StreamDeck0.log
 
 ```bash
 cd swift-plugin
-./build.sh --update-manifest
+./build.sh --install
 
 # Package the plugin
 mkdir -p dist
@@ -209,13 +233,28 @@ This approach is ~6x faster than calling `diskutil eject` as a subprocess.
 
 ## Security
 
-This plugin:
+This plugin is designed with security as a priority:
 
-- Only ejects external disks (not internal drives)
+### System Volume Protection
+
+- Uses **macOS system APIs** (not volume names) to detect protected volumes
+- Checks `.volumeIsRootFileSystemKey` to identify the boot drive regardless of its name
+- Checks `.volumeIsBrowsableKey` to skip system-only volumes (Recovery, Preboot, etc.)
+- Additional DiskArbitration property checks for edge cases
+- **Never relies on hardcoded volume names** - safe even if you renamed "Macintosh HD"
+
+### Privacy
+
+- **Does not log volume names** - avoids exposing sensitive information like "ConfidentialProject"
+- Only logs BSD device names (e.g., "disk2s1") when debug logging is enabled
+- Logs are written using OSLog with appropriate privacy levels
+
+### Permissions
+
 - Uses macOS's native DiskArbitration framework for safe unmount and eject
-- Validates disk paths before ejection
-- Runs entirely in user space with no elevated privileges required
-- Cannot access any other system resources
+- Requires Full Disk Access permission (user must explicitly grant)
+- Runs entirely in user space - no root/sudo required
+- Cannot access files on disks, only mount/unmount operations
 
 ## Troubleshooting
 
