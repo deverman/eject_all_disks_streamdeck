@@ -49,7 +49,7 @@ This plugin requires **Full Disk Access** permission to eject disks. Without thi
 Alternatively, if you're running the plugin binary directly for development:
 
 1. Add the plugin binary to Full Disk Access:
-   - `~/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin/bin/org.deverman.ejectalldisks`
+   - `~/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin/org.deverman.ejectalldisks`
 
 ### Why Full Disk Access?
 
@@ -103,7 +103,7 @@ eject_all_disks_streamdeck/
 ├── swift/                           # SwiftDiskArbitration library
 │   └── Packages/SwiftDiskArbitration/
 ├── org.deverman.ejectalldisks.sdPlugin/  # Plugin bundle
-│   ├── bin/                         # Compiled binary
+│   ├── org.deverman.ejectalldisks   # Compiled binary (after build)
 │   ├── ui/                          # Property Inspector HTML
 │   ├── imgs/                        # Icons and images
 │   └── manifest.json                # Plugin configuration
@@ -140,8 +140,10 @@ swift test
 **Option 1: Using Stream Deck CLI (Recommended)**
 
 ```bash
-npx streamdeck link org.deverman.ejectalldisks.sdPlugin
+streamdeck link org.deverman.ejectalldisks.sdPlugin
 ```
+
+Note: Install the Stream Deck CLI with `npm install -g @elgato/cli` if not already installed.
 
 **Option 2: Manual Symlink**
 
@@ -156,8 +158,8 @@ Then restart the Stream Deck application.
 ### Development Workflow
 
 1. Make changes to Swift files in `swift-plugin/Sources/`
-2. Rebuild: `cd swift-plugin && ./build.sh`
-3. Restart plugin: `npx streamdeck restart org.deverman.ejectalldisks`
+2. Build and install: `cd swift-plugin && ./build.sh --install`
+3. Restart plugin: `streamdeck restart org.deverman.ejectalldisks`
 4. Or restart Stream Deck application completely
 
 ### Viewing Logs
@@ -178,8 +180,8 @@ tail -f ~/Library/Logs/com.elgato.StreamDeck/StreamDeck0.log
 
 **Plugin doesn't appear in Stream Deck:**
 
-- Ensure the binary exists: `ls org.deverman.ejectalldisks.sdPlugin/bin/`
-- Run `./build.sh --install` to update the manifest
+- Ensure the binary exists: `ls org.deverman.ejectalldisks.sdPlugin/org.deverman.ejectalldisks`
+- Run `./build.sh --install` to build and install the plugin
 - Restart Stream Deck application completely
 - Check that `manifest.json` has correct paths
 
@@ -198,16 +200,21 @@ tail -f ~/Library/Logs/com.elgato.StreamDeck/StreamDeck0.log
 ### Packaging for Distribution
 
 ```bash
+# Build the plugin first
 cd swift-plugin
 ./build.sh --install
 
-# Package the plugin
-mkdir -p dist
+# Package using Stream Deck CLI (recommended)
 cd ..
-zip -r dist/org.deverman.ejectalldisks.streamDeckPlugin \
-  org.deverman.ejectalldisks.sdPlugin \
-  -x "*.DS_Store" -x "*/logs/*" -x "*.log"
+streamdeck pack org.deverman.ejectalldisks.sdPlugin
+
+# Or manually create a .streamDeckPlugin file
+# zip -r org.deverman.ejectalldisks.streamDeckPlugin \
+#   org.deverman.ejectalldisks.sdPlugin \
+#   -x "*.DS_Store" -x "*/logs/*" -x "*.log"
 ```
+
+The `streamdeck pack` command creates a properly formatted `.streamDeckPlugin` file ready for distribution.
 
 ## Architecture
 

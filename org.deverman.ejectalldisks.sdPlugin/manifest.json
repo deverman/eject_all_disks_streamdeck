@@ -23,7 +23,7 @@
     ],
     "Category": "Eject All Disks",
     "CategoryIcon": "imgs/plugin/category-icon",
-    "CodePath": "bin/org.deverman.ejectalldisks",
+    "CodePath": "org.deverman.ejectalldisks",
     "Description": "Ejects all external hard disks",
     "Icon": "imgs/plugin/marketplace",
     "SDKVersion": 2,
