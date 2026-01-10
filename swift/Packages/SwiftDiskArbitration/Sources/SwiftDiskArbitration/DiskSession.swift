@@ -5,6 +5,52 @@
 //  Actor-based session management for DiskArbitration operations.
 //  Provides thread-safe async/await APIs for disk unmounting and ejection.
 //
+// ============================================================================
+// SWIFT BEGINNER'S GUIDE TO THIS FILE
+// ============================================================================
+//
+// WHY THIS IS AN ACTOR (not a class):
+// ------------------------------------
+// An `actor` is a Swift type that provides automatic thread safety.
+// Only one piece of code can access an actor's state at a time.
+//
+// We need this because:
+//   1. DiskArbitration callbacks come from a background queue
+//   2. Multiple eject operations might run in parallel
+//   3. We need to track session validity (`isValid`) safely
+//
+// Without an actor, we'd need manual locks, which are error-prone.
+//
+// KEY CONCEPTS:
+// -------------
+//
+// 1. DASession LIFECYCLE
+//    - DASessionCreate() creates a session with Apple's disk framework
+//    - DASessionSetDispatchQueue() tells it where to deliver callbacks
+//    - In deinit, we set the queue to nil to stop callbacks before cleanup
+//
+// 2. nonisolated(unsafe)
+//    The `daSession` property is marked `nonisolated(unsafe)` because:
+//    - We need to access it in `deinit` (which runs outside actor isolation)
+//    - DASession is thread-safe, so this is actually safe
+//    - Swift 6 requires us to be explicit about this
+//
+// 3. PHYSICAL DEVICE GROUPING (Performance Optimization)
+//    A USB drive with 2 partitions appears as 2 volumes, but it's 1 device.
+//    Without grouping: Eject vol1, then eject vol2 (redundant)
+//    With grouping: Unmount both, eject device once (faster)
+//
+//    Example:
+//      disk2s1 (Partition 1) ─┐
+//                             ├─> disk2 (USB Drive) → Eject once
+//      disk2s2 (Partition 2) ─┘
+//
+// 4. TaskGroup FOR PARALLEL EXECUTION
+//    When ejecting multiple USB drives, we process them in parallel:
+//    - Drive A and Drive B eject simultaneously
+//    - Reduces total time from (A + B) to max(A, B)
+//
+// ============================================================================
 
 import DiskArbitration
 import Foundation

@@ -4,12 +4,56 @@
 //
 //  Bridges C-style DiskArbitration callbacks to Swift async/await continuations.
 //
-//  Memory Management Strategy:
-//  - We use Unmanaged.passRetained() to prevent the context from being deallocated
-//    before the callback fires
-//  - The callback uses takeRetainedValue() to balance the retain and allow deallocation
-//  - Each continuation is guaranteed to resume exactly once
+// ============================================================================
+// SWIFT BEGINNER'S GUIDE TO THIS FILE
+// ============================================================================
 //
+// WHY THIS FILE IS COMPLEX:
+// -------------------------
+// Apple's DiskArbitration framework is written in C, not Swift. To use it,
+// we need to bridge between two very different programming models:
+//
+//   C callbacks:     "Call this function when done" (old style)
+//   Swift async:     "await this operation" (modern style)
+//
+// This file converts C callbacks into Swift's async/await pattern.
+//
+// KEY CONCEPTS EXPLAINED:
+// -----------------------
+//
+// 1. CALLBACKS vs ASYNC/AWAIT
+//    In C, you pass a function pointer that gets called when work completes.
+//    In Swift, you use `await` which pauses until work completes.
+//    A "continuation" bridges these: it's a handle that lets you resume
+//    the awaiting code when the C callback fires.
+//
+// 2. WHY WE NEED Unmanaged<T>
+//    C functions accept a `void*` (raw pointer) to pass context around.
+//    Swift objects are memory-managed (ARC), so we can't just cast them.
+//    `Unmanaged` lets us:
+//      - passRetained(): Convert Swift object → raw pointer (prevents dealloc)
+//      - takeRetainedValue(): Convert raw pointer → Swift object (allows dealloc)
+//
+// 3. WHY TWO CONTEXT CLASSES (UnmountCallbackContext, EjectCallbackContext)
+//    Each holds a continuation for its specific operation. They're identical
+//    in structure but kept separate for type safety with the C callbacks.
+//
+// 4. @convention(c) CALLBACKS
+//    The `unmountCallback` and `ejectCallback` constants are C-compatible
+//    function pointers. They cannot capture Swift variables (no closures),
+//    which is why we pass context through the void* parameter.
+//
+// MEMORY SAFETY FLOW:
+// -------------------
+//   1. Create context object with continuation
+//   2. passRetained() → keeps object alive, gives us void*
+//   3. Pass void* to C function (DADiskUnmount/DADiskEject)
+//   4. C calls our callback with the void*
+//   5. takeRetainedValue() → gets object back, balances retain
+//   6. Resume continuation → Swift code continues after await
+//   7. Context object deallocates (balanced retain/release)
+//
+// ============================================================================
 
 import DiskArbitration
 import Foundation
@@ -64,8 +108,8 @@ internal final class EjectCallbackContext {
 // MARK: - C Callback Functions
 
 /// Enable debug output for troubleshooting
-/// Set to true to see detailed callback information
-internal let debugCallbacks = true  // Set to true for debugging
+/// Set to false in production to reduce console noise
+internal let debugCallbacks = false
 
 /// C callback for DADiskUnmount
 /// This function has @convention(c) semantics and cannot capture Swift context directly

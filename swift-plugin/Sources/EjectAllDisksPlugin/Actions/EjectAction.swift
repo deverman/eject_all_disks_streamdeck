@@ -5,6 +5,50 @@
 //  Stream Deck action for ejecting all external disks.
 //  Uses static SVG resources and SwiftDiskArbitration for disk operations.
 //
+// ============================================================================
+// SWIFT BEGINNER'S GUIDE TO THIS FILE
+// ============================================================================
+//
+// WHAT THIS FILE DOES:
+// --------------------
+// Implements the Stream Deck button that ejects all external drives when pressed.
+// Shows the current disk count on the button and updates it every 3 seconds.
+//
+// KEY CONCEPTS:
+// -------------
+//
+// 1. KeyAction PROTOCOL
+//    Stream Deck plugins define "actions" (buttons). Each action must:
+//    - Have metadata (name, icon, UUID)
+//    - Handle lifecycle events (willAppear, willDisappear)
+//    - Handle key events (keyUp, keyDown)
+//
+// 2. @GlobalSetting PROPERTY WRAPPER
+//    The `@GlobalSetting(\.isEjecting)` syntax creates a shared variable.
+//    All instances of EjectAction see the same `isEjecting` value.
+//    This prevents multiple simultaneous eject operations.
+//
+// 3. DispatchSourceTimer (POLLING)
+//    We poll for disk count every 3 seconds using a timer.
+//    Why not use notifications? DiskArbitration notifications are unreliable.
+//    Polling is simple, predictable, and "just works."
+//
+//    Timer lifecycle:
+//      willAppear  → start timer
+//      willDisappear → stop timer
+//
+// 4. @MainActor
+//    The `@MainActor` attribute means "run this on the main thread."
+//    UI updates must happen on the main thread, so performEject() uses it.
+//
+// 5. STATE MACHINE (Button Display)
+//    The button shows different states:
+//      Normal:    "2 Disks" or "Eject All Disks" (if 0)
+//      Ejecting:  "Ejecting..." with spinner icon
+//      Success:   "Ejected!" with checkmark icon
+//      Error:     "Error" or "Failed" with error icon
+//
+// ============================================================================
 
 import Foundation
 import StreamDeck

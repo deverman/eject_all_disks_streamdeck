@@ -4,6 +4,51 @@
 //
 //  Represents an external volume with its associated DADisk reference.
 //
+// ============================================================================
+// SWIFT BEGINNER'S GUIDE TO THIS FILE
+// ============================================================================
+//
+// WHAT THIS FILE DOES:
+// --------------------
+// Finds all ejectable drives (USB drives, SD cards, disk images) and creates
+// Volume objects that we can later eject.
+//
+// KEY CONCEPTS:
+// -------------
+//
+// 1. DADisk (DiskArbitration Disk)
+//    This is Apple's C type representing a disk. Think of it as a "handle"
+//    that lets us tell macOS "please eject THIS specific drive."
+//    We cache it to avoid looking it up again when ejecting.
+//
+// 2. WHY @unchecked Sendable?
+//    Swift 6 requires types passed between threads to be "Sendable" (safe).
+//    DADisk is a C type that Swift doesn't know is thread-safe.
+//    We mark Volume as `@unchecked Sendable` to tell Swift:
+//    "Trust us, this is safe to use from multiple threads."
+//
+//    This is safe because:
+//    - VolumeInfo is immutable (can't change after creation)
+//    - DADisk is read-only after we create it
+//    - We only use it for eject operations (which are thread-safe)
+//
+// 3. WHOLE DISK vs VOLUME
+//    A physical USB drive might have multiple partitions:
+//
+//      USB Drive (disk2)          ← "whole disk" (physical device)
+//        ├── Partition 1 (disk2s1)  ← volume
+//        └── Partition 2 (disk2s2)  ← volume
+//
+//    To physically eject the USB, we need the "whole disk" reference.
+//    That's why we cache `wholeDisk` - it's the physical device to eject.
+//
+// 4. VOLUME ENUMERATION LOGIC
+//    We scan /Volumes and filter to find ejectable drives:
+//    - Skip system volumes (Macintosh HD, Recovery, etc.)
+//    - Skip hidden files (starting with ".")
+//    - Include if: external OR ejectable OR removable
+//
+// ============================================================================
 
 import DiskArbitration
 import Foundation
