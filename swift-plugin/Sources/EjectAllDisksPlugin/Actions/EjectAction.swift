@@ -123,8 +123,14 @@ class EjectAction: KeyAction {
         setImage(toImage: "state", withExtension: "svg", subdirectory: "imgs/actions/eject")
         setTitle(to: self.showTitle ? "..." : nil, target: nil, state: nil)
 
-        // Start polling for disk count
-        startPolling(showTitle: self.showTitle)
+        // IMPORTANT: Persist settings on first appearance to ensure they're saved
+        // This fixes the issue where new actions don't initialize properly
+        setSettings(to: EjectActionSettings(showTitle: self.showTitle))
+
+        // Start polling for disk count (with slight delay to ensure action is ready)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            self?.startPolling(showTitle: self?.showTitle ?? true)
+        }
     }
 
     func willDisappear(device: String, payload: AppearEvent<Settings>) {
@@ -136,10 +142,12 @@ class EjectAction: KeyAction {
 
     private func startPolling(showTitle: Bool) {
         self.showTitle = showTitle
+        log.info("Starting disk count polling, showTitle=\(showTitle)")
 
-        // Initial update
-        Task {
-            await refreshDiskCount()
+        // Initial update - run immediately
+        Task { @MainActor in
+            log.debug("Performing initial disk count refresh")
+            await self.refreshDiskCount()
         }
 
         // Poll every 3 seconds using DispatchSourceTimer
@@ -147,12 +155,13 @@ class EjectAction: KeyAction {
         timer.schedule(deadline: .now() + 3.0, repeating: 3.0)
         timer.setEventHandler { [weak self] in
             guard let self = self else { return }
-            Task {
+            Task { @MainActor in
                 await self.refreshDiskCount()
             }
         }
         timer.resume()
         pollingTimer = timer
+        log.info("Polling timer started")
     }
 
     private func stopPolling() {
@@ -161,13 +170,16 @@ class EjectAction: KeyAction {
     }
 
     private func refreshDiskCount() async {
+        log.debug("refreshDiskCount called, needsInitialUpdate=\(self.needsInitialUpdate), current=\(self.diskCount)")
+
         let count = await DiskSession.shared.ejectableVolumeCount()
+        log.debug("DiskSession returned count: \(count)")
 
         // Always update on first call (needsInitialUpdate) or when count changes
         if needsInitialUpdate || count != self.diskCount {
             self.diskCount = count
             self.needsInitialUpdate = false
-            log.debug("Disk count updated: \(count)")
+            log.info("Updating display with disk count: \(count)")
             updateDisplay(showTitle: self.showTitle)
         }
     }
