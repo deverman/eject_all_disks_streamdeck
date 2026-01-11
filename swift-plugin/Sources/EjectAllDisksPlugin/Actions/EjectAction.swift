@@ -94,10 +94,13 @@ class EjectAction: KeyAction {
     private var pollingTimer: DispatchSourceTimer?
 
     /// Current disk count (locally tracked)
-    private var diskCount: Int = 0
+    private var diskCount: Int = -1  // Start at -1 to force first update
 
     /// Cached showTitle setting
     private var showTitle: Bool = true
+
+    /// Whether this is the first appearance (needs immediate display update)
+    private var needsInitialUpdate: Bool = true
 
     // MARK: - Initialization
 
@@ -111,10 +114,17 @@ class EjectAction: KeyAction {
     func willAppear(device: String, payload: AppearEvent<Settings>) {
         log.info("Action appeared on device \(device)")
 
-        let showTitle = payload.settings.showTitle
+        // Cache settings - use default if not set
+        self.showTitle = payload.settings.showTitle
+        self.needsInitialUpdate = true
+        self.diskCount = -1  // Reset to force update
+
+        // Show immediate feedback while we fetch disk count
+        setImage(toImage: "state", withExtension: "svg", subdirectory: "imgs/actions/eject")
+        setTitle(to: self.showTitle ? "..." : nil, target: nil, state: nil)
 
         // Start polling for disk count
-        startPolling(showTitle: showTitle)
+        startPolling(showTitle: self.showTitle)
     }
 
     func willDisappear(device: String, payload: AppearEvent<Settings>) {
@@ -152,8 +162,11 @@ class EjectAction: KeyAction {
 
     private func refreshDiskCount() async {
         let count = await DiskSession.shared.ejectableVolumeCount()
-        if count != self.diskCount {
+
+        // Always update on first call (needsInitialUpdate) or when count changes
+        if needsInitialUpdate || count != self.diskCount {
             self.diskCount = count
+            self.needsInitialUpdate = false
             log.debug("Disk count updated: \(count)")
             updateDisplay(showTitle: self.showTitle)
         }
