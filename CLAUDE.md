@@ -18,6 +18,7 @@ This document provides comprehensive guidelines for developing Swift-native Stre
 8. [Common Patterns](#common-patterns)
 9. [Troubleshooting](#troubleshooting)
 10. [Validation Checklists](#validation-checklists)
+11. [Marketplace Distribution](#marketplace-distribution)
 
 ---
 
@@ -728,12 +729,110 @@ func formatErrorTitle(_ error: Error) -> String {
 
 ---
 
+## Marketplace Distribution
+
+### Overview
+
+To sell plugins on the [Elgato Marketplace](https://marketplace.elgato.com):
+1. Create account at [Maker Console](https://maker.elgato.com)
+2. Sign the Maker Agreement
+3. Submit plugin with required assets
+4. Wait 4-10 business days for review
+
+**Revenue Split:** 70% to you, 30% to Elgato (via Stripe Connect)
+
+### Required Assets
+
+| Asset | Dimensions | Format | Notes |
+|-------|------------|--------|-------|
+| **Plugin Icon** | 288 × 288 px | PNG | Main marketplace icon |
+| **Thumbnail** | 1920 × 960 px | PNG | Listing header image |
+| **Gallery Images** | 1920 × 960 px | PNG | 3-10 images recommended |
+| **Category Icon** | 28 × 28 px | SVG | White on transparent |
+| **Action Icons** | 20 × 20 px | SVG | White on transparent |
+
+### Required manifest.json Fields
+
+```json
+{
+    "Name": "Plugin Name",
+    "Version": "1.0.0",
+    "Author": "Your Organization",
+    "URL": "https://your-homepage.com",
+    "Description": "What your plugin does",
+    "Icon": "imgs/plugin/marketplace",
+    "UUID": "org.yourorg.pluginname"
+}
+```
+
+### Product Listing Requirements
+
+| Field | Requirements |
+|-------|-------------|
+| **Name** | Unique, descriptive, no trademarks |
+| **Description** | Complete functionality description |
+| **Support URL** | GitHub issues or help page |
+| **Release Notes** | What's new in this version |
+| **Alt Text** | For all images (accessibility) |
+
+### Submission Checklist
+
+```
+☐ Maker Console account created
+☐ Maker Agreement signed
+☐ Plugin packaged: streamdeck pack org.yourorg.pluginname.sdPlugin
+☐ Plugin icon created (288 × 288 px PNG)
+☐ Thumbnail created (1920 × 960 px PNG)
+☐ 3+ gallery images created (1920 × 960 px PNG)
+☐ Product description written
+☐ Release notes written
+☐ Support URL configured
+☐ Price set (or free)
+☐ No copyrighted material
+☐ No external payment systems
+☐ Tested on clean install
+```
+
+### Gallery Image Ideas
+
+1. **Hero Shot** - Button on Stream Deck showing primary state
+2. **All States** - Side-by-side of different button states
+3. **Features** - Highlight key capabilities
+4. **Speed/Performance** - If applicable, show benchmarks
+5. **Error Handling** - Show intelligent error messages
+6. **Setup Steps** - Simple installation process
+
+### Pricing Notes
+
+- One-time purchase only (no subscriptions)
+- No free trials supported
+- No external payment systems allowed
+- Minimum price: $0.99 USD
+- DRM automatically enabled with CLI 1.6+
+
+### Post-Submission
+
+- Review takes 4-10 business days
+- Elgato may request changes
+- UUID cannot be changed after publishing
+- Updates follow same review process
+
+### Marketing Assets Template
+
+See `MARKETPLACE_ASSETS.md` for complete marketing copy and image specifications.
+
+---
+
 ## Resources
 
 - [StreamDeckPlugin Library](https://github.com/emorydunn/StreamDeckPlugin)
 - [Stream Deck SDK Documentation](https://docs.elgato.com/sdk/)
 - [Stream Deck CLI](https://www.npmjs.com/package/@elgato/cli)
 - [Swift Concurrency Guide](https://docs.swift.org/swift-book/LanguageGuide/Concurrency.html)
+- [Elgato Marketplace](https://marketplace.elgato.com)
+- [Maker Console](https://maker.elgato.com)
+- [Maker Documentation](https://docs.elgato.com/makers/)
+- [Plugin Metadata Guidelines](https://docs.elgato.com/guidelines/streamdeck/plugins/metadata/)
 
 ---
 
