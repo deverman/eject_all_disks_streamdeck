@@ -523,14 +523,57 @@ streamdeck pack org.yourorg.pluginname.sdPlugin
 # Output: org.yourorg.pluginname.streamDeckPlugin
 ```
 
+### Releasing a New Version
+
+Version is defined in **one place only**: `Sources/YourPluginName/YourPluginName.swift`
+
+```swift
+static var version: String = "3.0.0"  // ← Change this
+```
+
+The manifest.json is **auto-generated** by `swift run ... export`, so you don't need to edit it manually.
+
+**Release Steps:**
+
+1. **Bump version** in Swift file:
+   ```swift
+   // swift-plugin/Sources/YourPluginName/YourPluginName.swift
+   static var version: String = "3.1.0"  // MAJOR.MINOR.PATCH
+   ```
+
+2. **Build and test**:
+   ```bash
+   cd swift-plugin
+   swift test
+   ./build.sh --install
+   ```
+
+3. **Commit and tag**:
+   ```bash
+   git add -A
+   git commit -m "Bump version to 3.1.0"
+   git tag -a v3.1.0 -m "Release v3.1.0"
+   git push && git push origin v3.1.0
+   ```
+
+4. **Create GitHub release**:
+   - Go to: https://github.com/yourorg/yourplugin/releases/new?tag=v3.1.0
+   - GitHub Actions will automatically build and attach the `.streamDeckPlugin` file
+
+**Version Format:** `MAJOR.MINOR.PATCH`
+- **MAJOR**: Breaking changes
+- **MINOR**: New features (backward compatible)
+- **PATCH**: Bug fixes
+
 ### Distribution Checklist
 
 ```
-☐ Version bumped in Plugin.swift and manifest.json
-☐ All assets included (imgs/, ui/)
-☐ Binary compiled for release
-☐ Tested on clean install
-☐ README updated with installation instructions
+☐ Version bumped in YourPluginName.swift
+☐ Tests pass: swift test
+☐ Build succeeds: ./build.sh --install
+☐ Plugin works correctly in Stream Deck
+☐ Git tagged with version
+☐ GitHub release created
 ```
 
 ---
