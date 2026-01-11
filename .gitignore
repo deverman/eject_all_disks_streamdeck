@@ -10,3 +10,5 @@ dist/
 *.sdPlugin/logs
 
 .DS_Store
+
+.build
