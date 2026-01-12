@@ -29,11 +29,14 @@ class EjectAllDisksPlugin: Plugin {
 
     static var name: String = "Eject All Disks"
     static var description: String = "Ejects all external hard disks"
+    static var category: String? = "Eject All Disks"
+    static var categoryIcon: String? = "imgs/plugin/category-icon"
     static var author: String = "Brent Deverman"
     static var icon: String = "imgs/plugin/marketplace"
     static var version: String = "3.0.0"
 
     static var os: [PluginOS] = [.macOS("13")]
+    static var software: PluginSoftware = .minimumVersion("6.4")
 
     // MARK: - Actions
 
