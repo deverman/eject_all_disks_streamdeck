@@ -86,7 +86,7 @@ In the Stream Deck button configuration:
 
 - macOS 13 or later
 - Xcode Command Line Tools (`xcode-select --install`)
-- Swift 5.9 or later
+- Swift 6.2.1 or later
 
 ### Project Structure
 
@@ -188,7 +188,7 @@ tail -f ~/Library/Logs/com.elgato.StreamDeck/StreamDeck0.log
 **Build errors:**
 
 - Ensure Xcode Command Line Tools are installed: `xcode-select --install`
-- Check Swift version: `swift --version` (requires 5.9+)
+- Check Swift version: `swift --version` (requires 6.2.1+)
 - Clean build: `cd swift-plugin && swift package clean && ./build.sh`
 
 **Disk count not updating:**

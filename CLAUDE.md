@@ -78,7 +78,7 @@ your-plugin-name/
 | Dependency | Purpose | Source |
 |------------|---------|--------|
 | StreamDeckPlugin | Swift SDK for Stream Deck plugins | `https://github.com/emorydunn/StreamDeckPlugin.git` |
-| Swift Testing | Modern test framework | Built into Swift 5.9+ |
+| Swift Testing | Modern test framework | Built into Swift 6.2.1+ |
 
 ### Plugin vs Action Architecture
 

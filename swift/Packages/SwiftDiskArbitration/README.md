@@ -14,7 +14,7 @@ A modern Swift wrapper for macOS DiskArbitration framework with async/await supp
 ## Requirements
 
 - macOS 13.0+
-- Swift 5.9+
+- Swift 6.2.1+
 - Xcode 15+
 
 ## Installation
