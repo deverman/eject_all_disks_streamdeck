@@ -23,15 +23,26 @@ jobs:
         with:
           swift-version: "6.2.1"
 
-      - name: Swift version
-        run: swift --version
+      - name: Swift version (for cache key)
+        id: swift-version
+        shell: bash
+        run: |
+          set -euo pipefail
+          swift --version
+          # Create a stable, safe cache key component from the toolchain version line.
+          # Example: "Apple Swift version 6.2.1 (swiftlang-... clang-...)"
+          SWIFT_VERSION_LINE="$(swift --version | head -n 1)"
+          SWIFT_VERSION_KEY="$(echo "$SWIFT_VERSION_LINE" | tr ' ' '-' | tr -cd '[:alnum:]-._')"
+          echo "SWIFT_VERSION_KEY=$SWIFT_VERSION_KEY" >> "$GITHUB_ENV"
+          echo "swift_version_key=$SWIFT_VERSION_KEY" >> "$GITHUB_OUTPUT"
 
       - name: Cache Swift packages
         uses: actions/cache@v4
         with:
           path: swift-plugin/.build
-          key: ${{ runner.os }}-swift-${{ hashFiles('swift-plugin/Package.resolved') }}
+          key: ${{ runner.os }}-${{ env.SWIFT_VERSION_KEY }}-swift-${{ hashFiles('swift-plugin/Package.resolved') }}
           restore-keys: |
+            ${{ runner.os }}-${{ env.SWIFT_VERSION_KEY }}-swift-
             ${{ runner.os }}-swift-
 
       - name: Build Swift plugin
