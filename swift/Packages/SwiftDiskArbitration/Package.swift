@@ -16,12 +16,21 @@ let package = Package(
             name: "SwiftDiskArbitration",
             targets: ["SwiftDiskArbitration"]
         ),
+        .executable(
+            name: "swiftdiskarb-bench",
+            targets: ["SwiftDiskArbitrationBench"]
+        ),
     ],
     targets: [
         .target(
             name: "SwiftDiskArbitration",
             dependencies: []
             // Note: StrictConcurrency is enabled by default in Swift 6
+        ),
+        .executableTarget(
+            name: "SwiftDiskArbitrationBench",
+            dependencies: ["SwiftDiskArbitration"],
+            path: "Tools/SwiftDiskArbitrationBench"
         ),
         .testTarget(
             name: "SwiftDiskArbitrationTests",

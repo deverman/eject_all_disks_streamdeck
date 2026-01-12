@@ -13,6 +13,7 @@ import OSLog
 
 /// Logger for plugin events
 fileprivate let log = Logger(subsystem: "org.deverman.ejectalldisks", category: "plugin")
+fileprivate let debugLoggingEnabled = ProcessInfo.processInfo.environment["EJECT_ALL_DISKS_DEBUG"] == "1"
 
 /// Global settings shared across all actions
 extension GlobalSettings {
@@ -49,6 +50,8 @@ class EjectAllDisksPlugin: Plugin {
     // MARK: - Initialization
 
     required init() {
-        log.info("EjectAllDisksPlugin initialized")
+        if debugLoggingEnabled {
+            log.debug("EjectAllDisksPlugin initialized")
+        }
     }
 }

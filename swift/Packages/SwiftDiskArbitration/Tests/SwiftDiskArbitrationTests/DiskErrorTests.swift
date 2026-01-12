@@ -45,14 +45,14 @@ struct DiskErrorTests {
   @Test("DAReturn conversion handles known codes")
   func daReturnConversion() {
     // Test known status codes
-    let busyError = DiskError.from(status: 0xF8DA_0002, message: "test")
+    let busyError = DiskError.from(status: Int32(bitPattern: 0xF8DA_0002), message: "test")
     if case .busy(let message) = busyError {
       #expect(message == "test")
     } else {
       Issue.record("Expected .busy error")
     }
 
-    let notFoundError = DiskError.from(status: 0xF8DA_0006, message: nil)
+    let notFoundError = DiskError.from(status: Int32(bitPattern: 0xF8DA_0006), message: nil)
     if case .notFound = notFoundError {
       // Success
     } else {
@@ -62,9 +62,10 @@ struct DiskErrorTests {
 
   @Test("Unknown status codes produce .unknown error")
   func unknownStatusCode() {
-    let error = DiskError.from(status: 0x1234_5678, message: "weird error")
+    let raw = Int32(bitPattern: 0x1234_5678)
+    let error = DiskError.from(status: raw, message: "weird error")
     if case .unknown(let status, let message) = error {
-      #expect(status == 0x1234_5678)
+      #expect(status == raw)
       #expect(message == "weird error")
     } else {
       Issue.record("Expected .unknown error")

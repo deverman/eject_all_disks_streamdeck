@@ -60,6 +60,7 @@ jobs:
           echo "Copying assets to: $INSTALL_DIR"
           cp -r org.deverman.ejectalldisks.sdPlugin/imgs "$INSTALL_DIR/"
           cp -r org.deverman.ejectalldisks.sdPlugin/ui "$INSTALL_DIR/"
+          cp -r org.deverman.ejectalldisks.sdPlugin/libs "$INSTALL_DIR/"
           echo "✅ Assets copied"
 
       - name: Verify build output

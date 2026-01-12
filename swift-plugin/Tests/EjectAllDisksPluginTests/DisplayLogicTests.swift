@@ -130,9 +130,7 @@ struct DiskCountEdgeCaseTests {
     func negativeDiskCount(count: Int) {
         // Negative counts should show "No Disks" (treated as 0)
         let title = DisplayTitle.forDiskCount(count, showTitle: true)
-        // Current implementation would show "-1 Disks" etc.
-        // This documents current behavior
-        #expect(title?.contains("Disk") == true)
+        #expect(title == "No Disks")
     }
 }
 

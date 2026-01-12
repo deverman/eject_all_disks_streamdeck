@@ -4,7 +4,7 @@ A Stream Deck plugin that adds a button to safely eject all external disks on ma
 
 ## Features
 
-- **Fast native disk ejection** - Uses macOS DiskArbitration framework for ~6x faster ejection than diskutil
+- **Fast native disk ejection** - Uses macOS DiskArbitration framework (typically ~6–10x faster than `diskutil`)
 - **Pure Swift implementation** - Native Stream Deck plugin with no Node.js or shell script dependencies
 - **Real-time disk count monitoring** - Shows the number of attached external disks on the button
 - **Automatic updates** - Disk count updates every 3 seconds as disks are mounted/unmounted
@@ -236,7 +236,7 @@ The plugin uses the macOS DiskArbitration framework directly:
 4. Ejects the physical device using `DADiskEject`
 5. Runs all operations in parallel using Swift concurrency
 
-This approach is ~6x faster than calling `diskutil eject` as a subprocess.
+This approach is typically ~6–10x faster than calling `diskutil eject` as a subprocess (machine and disk dependent).
 
 ## Security
 

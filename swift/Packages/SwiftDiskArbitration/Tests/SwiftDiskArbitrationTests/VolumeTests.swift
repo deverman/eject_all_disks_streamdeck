@@ -6,6 +6,7 @@
 //
 
 import Testing
+import Foundation
 
 @testable import SwiftDiskArbitration
 
@@ -110,25 +111,23 @@ struct VolumeEnumerationTests {
 
   @Test("Session can be created")
   func sessionCreation() throws {
-    let session = try DiskSession()
-    // If we get here, session was created successfully
-    #expect(true)
+    _ = try DiskSession()
   }
 
   @Test("Enumeration returns array (may be empty)")
-  func enumerationReturnsArray() throws {
+  func enumerationReturnsArray() async throws {
     let session = try DiskSession()
-    let volumes = session.enumerateEjectableVolumes()
+    let volumes = await session.enumerateEjectableVolumes()
 
     // We can't guarantee external volumes are present, but it should return an array
     #expect(volumes.count >= 0)
   }
 
   @Test("Volume count matches enumeration")
-  func volumeCountMatchesEnumeration() throws {
+  func volumeCountMatchesEnumeration() async throws {
     let session = try DiskSession()
-    let volumes = session.enumerateEjectableVolumes()
-    let count = session.ejectableVolumeCount()
+    let volumes = await session.enumerateEjectableVolumes()
+    let count = await session.ejectableVolumeCount()
 
     #expect(count == volumes.count)
   }
