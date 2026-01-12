@@ -63,9 +63,13 @@ jobs:
         working-directory: swift-plugin
         run: |
           echo "Exporting plugin..."
-          swift run org.deverman.ejectalldisks export org.deverman.ejectalldisks \
+          swift run -c release org.deverman.ejectalldisks export org.deverman.ejectalldisks \
             --generate-manifest \
             --copy-executable
+          
+          # Ensure the installed plugin uses the optimized release binary (swift run defaults to debug without -c).
+          INSTALL_DIR="$HOME/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin"
+          cp ".build/release/org.deverman.ejectalldisks" "$INSTALL_DIR/org.deverman.ejectalldisks"
           echo "✅ Plugin exported"
 
       - name: Copy assets to export
