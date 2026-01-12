@@ -95,15 +95,7 @@ struct SettingsTests {
         let data = json.data(using: .utf8)!
         let decoder = JSONDecoder()
 
-        // This will fail if showTitle is required - which is expected
-        // since we defined it with a default value but didn't mark it optional
-        do {
-            let settings = try decoder.decode(EjectActionSettings.self, from: data)
-            // If decoding succeeds with empty JSON, default should be true
-            #expect(settings.showTitle == true)
-        } catch {
-            // Decoding failure is also acceptable behavior for missing required fields
-            // In this case, the field is required because we didn't make it optional
-        }
+        let settings = try decoder.decode(EjectActionSettings.self, from: data)
+        #expect(settings.showTitle == true)
     }
 }

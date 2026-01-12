@@ -35,20 +35,27 @@ if [ "$1" == "--install" ]; then
     echo ""
     echo -e "${YELLOW}Installing to Stream Deck...${NC}"
 
-    # Export plugin with generated manifest
+    INSTALL_DIR="$HOME/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin"
+
+    # Export plugin with generated manifest (this builds debug, but we'll overwrite)
     swift run org.deverman.ejectalldisks export org.deverman.ejectalldisks \
         --generate-manifest \
         --copy-executable
 
-    # Copy assets (images and UI)
-    INSTALL_DIR="$HOME/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin"
+    # IMPORTANT: Copy the RELEASE binary over the debug binary that export created
+    # The export command builds debug, but we want the optimized release build
+    echo -e "${YELLOW}Copying release binary...${NC}"
+    cp ".build/release/org.deverman.ejectalldisks" "$INSTALL_DIR/org.deverman.ejectalldisks"
+
+    # Copy assets (images, UI, and libs)
     cp -r "$PLUGIN_DIR/imgs" "$INSTALL_DIR/"
     cp -r "$PLUGIN_DIR/ui" "$INSTALL_DIR/"
+    cp -r "$PLUGIN_DIR/libs" "$INSTALL_DIR/" 2>/dev/null || true
 
     echo -e "${GREEN}Plugin installed!${NC}"
     echo ""
     echo "To activate, restart the plugin:"
-    echo "  npx streamdeck restart org.deverman.ejectalldisks"
+    echo "  streamdeck restart org.deverman.ejectalldisks"
 else
     echo ""
     echo -e "${GREEN}Build complete!${NC}"

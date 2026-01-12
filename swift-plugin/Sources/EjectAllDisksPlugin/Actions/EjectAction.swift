@@ -61,6 +61,24 @@ fileprivate let log = Logger(subsystem: "org.deverman.ejectalldisks", category: 
 /// Settings for the Eject action
 struct EjectActionSettings: Codable, Hashable, Sendable {
     var showTitle: Bool = true
+
+    init(showTitle: Bool = true) {
+        self.showTitle = showTitle
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.showTitle = try container.decodeIfPresent(Bool.self, forKey: .showTitle) ?? true
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(showTitle, forKey: .showTitle)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case showTitle
+    }
 }
 
 /// Stream Deck action for ejecting all external disks
@@ -102,6 +120,9 @@ class EjectAction: KeyAction {
     /// Whether this is the first appearance (needs immediate display update)
     private var needsInitialUpdate: Bool = true
 
+    /// Whether polling has started (prevents double-start)
+    private var pollingStarted: Bool = false
+
     // MARK: - Initialization
 
     required init(context: String, coordinates: StreamDeck.Coordinates?) {
@@ -112,41 +133,40 @@ class EjectAction: KeyAction {
     // MARK: - Lifecycle Events
 
     func willAppear(device: String, payload: AppearEvent<Settings>) {
-        log.info("Action appeared on device \(device)")
+        log.debug("Action appeared: context=\(self.context), device=\(device), isInMultiAction=\(payload.isInMultiAction)")
 
-        // Cache settings - use default if not set
+        // Reset state for this appearance
         self.showTitle = payload.settings.showTitle
         self.needsInitialUpdate = true
-        self.diskCount = -1  // Reset to force update
+        self.diskCount = -1
+        self.pollingStarted = false
 
-        // Show immediate feedback while we fetch disk count
-        setImage(toImage: "state", withExtension: "svg", subdirectory: "imgs/actions/eject")
-        setTitle(to: self.showTitle ? "..." : nil, target: nil, state: nil)
+        log.debug("willAppear: showTitle=\(self.showTitle)")
 
-        // IMPORTANT: Persist settings on first appearance to ensure they're saved
-        // This fixes the issue where new actions don't initialize properly
-        setSettings(to: EjectActionSettings(showTitle: self.showTitle))
-
-        // Start polling for disk count (with slight delay to ensure action is ready)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            self?.startPolling(showTitle: self?.showTitle ?? true)
+        // Simple approach: just start polling after a 1 second delay
+        // This gives Stream Deck time to fully register the action
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self = self, !self.pollingStarted else { return }
+            self.pollingStarted = true
+            log.debug("Starting polling after 1s delay")
+            self.startPolling(showTitle: self.showTitle)
         }
     }
 
     func willDisappear(device: String, payload: AppearEvent<Settings>) {
-        log.info("Action disappeared from device \(device)")
+        log.debug("Action disappeared from device \(device)")
         stopPolling()
     }
-
+    
     // MARK: - Disk Count Polling
 
     private func startPolling(showTitle: Bool) {
         self.showTitle = showTitle
-        log.info("Starting disk count polling, showTitle=\(showTitle)")
+        log.info("startPolling: context=\(self.context), showTitle=\(showTitle)")
 
-        // Initial update - run immediately
+        // Initial update - run immediately on main actor
         Task { @MainActor in
-            log.debug("Performing initial disk count refresh")
+            log.info("Performing initial disk count refresh for context=\(self.context)")
             await self.refreshDiskCount()
         }
 
@@ -161,7 +181,7 @@ class EjectAction: KeyAction {
         }
         timer.resume()
         pollingTimer = timer
-        log.info("Polling timer started")
+        log.info("Polling timer started for context=\(self.context)")
     }
 
     private func stopPolling() {
@@ -188,8 +208,10 @@ class EjectAction: KeyAction {
 
     func didReceiveSettings(device: String, payload: SettingsEvent<Settings>.Payload) {
         self.showTitle = payload.settings.showTitle
+        log.info("didReceiveSettings: context=\(self.context), showTitle=\(self.showTitle)")
+
+        // Update display when settings change (e.g., from Property Inspector checkbox)
         updateDisplay(showTitle: self.showTitle)
-        log.debug("Settings updated: showTitle=\(self.showTitle)")
     }
 
     // MARK: - Key Events
@@ -276,18 +298,21 @@ class EjectAction: KeyAction {
 
     /// Updates the display with current state
     private func updateDisplay(showTitle: Bool) {
-        setImage(toImage: "state", withExtension: "svg", subdirectory: "imgs/actions/eject")
-
+        let title: String?
         if showTitle {
             if diskCount > 0 {
-                setTitle(to: "\(diskCount) Disk\(diskCount == 1 ? "" : "s")", target: nil, state: nil)
+                title = "\(diskCount) Disk\(diskCount == 1 ? "" : "s")"
             } else {
-                // Show "No Disks" when nothing is mounted - clearer than "Eject All Disks"
-                setTitle(to: "No Disks", target: nil, state: nil)
+                title = "No Disks"
             }
         } else {
-            setTitle(to: nil, target: nil, state: nil)
+            title = nil
         }
+
+        log.info("updateDisplay: context=\(self.context), title=\(title ?? "nil"), showTitle=\(showTitle)")
+
+        setImage(toImage: "state", withExtension: "svg", subdirectory: "imgs/actions/eject")
+        setTitle(to: title, target: nil, state: nil)
     }
 
     /// Logs eject results for debugging
