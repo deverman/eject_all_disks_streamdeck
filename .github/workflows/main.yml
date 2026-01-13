@@ -70,6 +70,20 @@ jobs:
           # Ensure the installed plugin uses the optimized release binary (swift run defaults to debug without -c).
           INSTALL_DIR="$HOME/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin"
           cp ".build/release/org.deverman.ejectalldisks" "$INSTALL_DIR/org.deverman.ejectalldisks"
+
+          # StreamDeckPlugin's generated manifest omits the top-level UUID; streamdeck pack requires it.
+          python3 - <<'PY'
+          import json, os
+          plugin_uuid = "org.deverman.ejectalldisks"
+          install_dir = os.path.expanduser("~/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin")
+          manifest_path = os.path.join(install_dir, "manifest.json")
+          with open(manifest_path, "r", encoding="utf-8") as f:
+              data = json.load(f)
+          data["UUID"] = plugin_uuid
+          with open(manifest_path, "w", encoding="utf-8") as f:
+              json.dump(data, f, indent=4, ensure_ascii=False)
+              f.write("\n")
+          PY
           echo "✅ Plugin exported"
 
       - name: Copy assets to export
