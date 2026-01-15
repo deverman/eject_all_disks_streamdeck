@@ -47,21 +47,6 @@ if [ "$1" == "--install" ]; then
     echo -e "${YELLOW}Copying release binary...${NC}"
     cp ".build/release/org.deverman.ejectalldisks" "$INSTALL_DIR/org.deverman.ejectalldisks"
 
-    # StreamDeckPlugin's generated manifest omits the top-level UUID; Stream Deck tooling expects it.
-    python3 - <<'PY'
-import json, os
-plugin_uuid = "org.deverman.ejectalldisks"
-manifest_path = os.path.expanduser(
-    "~/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin/manifest.json"
-)
-with open(manifest_path, "r", encoding="utf-8") as f:
-    data = json.load(f)
-data["UUID"] = plugin_uuid
-with open(manifest_path, "w", encoding="utf-8") as f:
-    json.dump(data, f, indent=4, ensure_ascii=False)
-    f.write("\n")
-PY
-
     # Copy assets (images, UI, and libs)
     cp -r "$PLUGIN_DIR/imgs" "$INSTALL_DIR/"
     cp -r "$PLUGIN_DIR/ui" "$INSTALL_DIR/"

@@ -1,13 +1,12 @@
 {
-  "originHash" : "7057fadcad16c25045cd297cde5854e8a30bd69897d93e338d0fe7cb059f4e94",
   "pins" : [
     {
       "identity" : "streamdeckplugin",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/emorydunn/StreamDeckPlugin.git",
+      "location" : "https://github.com/deverman/StreamDeckPlugin.git",
       "state" : {
-        "revision" : "57f3ffdc486bb21d29275b3300a867dbe5481789",
-        "version" : "0.6.0"
+        "branch" : "passstreamdeckvalidate",
+        "revision" : "bd91c9005821784b04306d2139afaea1ebd835e6"
       }
     },
     {
@@ -29,5 +28,5 @@
       }
     }
   ],
-  "version" : 3
+  "version" : 2
 }
