@@ -9,8 +9,8 @@ on:
     types: [created]
 
 jobs:
-  build-and-package:
-    runs-on: macos-latest
+  build:
+    runs-on: macos-14
     permissions:
       contents: write
 
@@ -18,74 +18,145 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Swift
+        uses: swift-actions/setup-swift@v2
         with:
-          node-version: "20"
-          cache: "npm"
+          swift-version: "6.2.1"
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Swift version (for cache key)
+        id: swift-version
+        shell: bash
+        run: |
+          set -euo pipefail
+          swift --version
+          # Create a stable, safe cache key component from the toolchain version line.
+          # Example: "Apple Swift version 6.2.1 (swiftlang-... clang-...)"
+          SWIFT_VERSION_LINE="$(swift --version | head -n 1)"
+          SWIFT_VERSION_KEY="$(echo "$SWIFT_VERSION_LINE" | tr ' ' '-' | tr -cd '[:alnum:]-._')"
+          echo "SWIFT_VERSION_KEY=$SWIFT_VERSION_KEY" >> "$GITHUB_ENV"
+          echo "swift_version_key=$SWIFT_VERSION_KEY" >> "$GITHUB_OUTPUT"
 
-      - name: Lint check
-        run: npm run lint:check
-        continue-on-error: true
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: swift-plugin/.build
+          key: ${{ runner.os }}-${{ env.SWIFT_VERSION_KEY }}-swift-${{ hashFiles('swift-plugin/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ env.SWIFT_VERSION_KEY }}-swift-
+            ${{ runner.os }}-swift-
 
-      - name: Build Swift binary
-        run: npm run build:swift
+      - name: Build Swift plugin
+        working-directory: swift-plugin
+        run: |
+          echo "Building release binary..."
+          swift build -c release
+          echo "✅ Build succeeded"
 
-      - name: Build plugin
-        run: npm run build
+      - name: Run tests
+        working-directory: swift-plugin
+        run: |
+          echo "Running tests..."
+          swift test
+          echo "✅ Tests passed"
+
+      - name: Export plugin
+        working-directory: swift-plugin
+        run: |
+          echo "Exporting plugin..."
+          swift run -c release org.deverman.ejectalldisks export org.deverman.ejectalldisks \
+            --generate-manifest \
+            --copy-executable
+          
+          # Ensure the installed plugin uses the optimized release binary (swift run defaults to debug without -c).
+          INSTALL_DIR="$HOME/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin"
+          cp ".build/release/org.deverman.ejectalldisks" "$INSTALL_DIR/org.deverman.ejectalldisks"
+
+          # StreamDeckPlugin's generated manifest omits the top-level UUID; streamdeck pack requires it.
+          python3 - <<'PY'
+          import json, os
+          plugin_uuid = "org.deverman.ejectalldisks"
+          install_dir = os.path.expanduser("~/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin")
+          manifest_path = os.path.join(install_dir, "manifest.json")
+          with open(manifest_path, "r", encoding="utf-8") as f:
+              data = json.load(f)
+          data["UUID"] = plugin_uuid
+          with open(manifest_path, "w", encoding="utf-8") as f:
+              json.dump(data, f, indent=4, ensure_ascii=False)
+              f.write("\n")
+          PY
+          echo "✅ Plugin exported"
+
+      - name: Copy assets to export
+        run: |
+          INSTALL_DIR="$HOME/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin"
+          echo "Copying assets to: $INSTALL_DIR"
+          cp -r org.deverman.ejectalldisks.sdPlugin/imgs "$INSTALL_DIR/"
+          cp -r org.deverman.ejectalldisks.sdPlugin/ui "$INSTALL_DIR/"
+          cp -r org.deverman.ejectalldisks.sdPlugin/libs "$INSTALL_DIR/"
+          echo "✅ Assets copied"
 
       - name: Verify build output
         run: |
+          PLUGIN_DIR="$HOME/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin"
           echo "Checking required files..."
-          if [ ! -f "org.deverman.ejectalldisks.sdPlugin/bin/plugin.js" ]; then
-            echo "Error: plugin.js not found after build"
+
+          if [ ! -f "$PLUGIN_DIR/org.deverman.ejectalldisks" ]; then
+            echo "Error: Binary not found"
             exit 1
           fi
-          if [ ! -f "org.deverman.ejectalldisks.sdPlugin/bin/eject-disks" ]; then
-            echo "Error: Swift binary eject-disks not found after build"
+
+          if [ ! -f "$PLUGIN_DIR/manifest.json" ]; then
+            echo "Error: manifest.json not found"
             exit 1
           fi
-          if [ ! -f "org.deverman.ejectalldisks.sdPlugin/bin/install-eject-privileges.sh" ]; then
-            echo "Error: install-eject-privileges.sh not found"
+
+          if [ ! -d "$PLUGIN_DIR/imgs" ]; then
+            echo "Error: imgs directory not found"
             exit 1
           fi
+
           echo "✅ All required files present"
           echo ""
-          echo "Contents of bin directory:"
-          ls -lh org.deverman.ejectalldisks.sdPlugin/bin/
+          echo "Plugin contents:"
+          ls -lh "$PLUGIN_DIR/"
           echo ""
-          echo "Swift binary info:"
-          file org.deverman.ejectalldisks.sdPlugin/bin/eject-disks
+          echo "Binary info:"
+          file "$PLUGIN_DIR/org.deverman.ejectalldisks"
 
       - name: Install StreamDeck CLI
         run: npm install -g @elgato/cli
 
       - name: Validate plugin
-        run: npx streamdeck validate org.deverman.ejectalldisks.sdPlugin || true
+        run: |
+          PLUGIN_DIR="$HOME/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin"
+          streamdeck validate "$PLUGIN_DIR" || true
         continue-on-error: true
 
       - name: Package plugin
         run: |
+          PLUGIN_DIR="$HOME/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin"
           mkdir -p dist
-          zip -r dist/org.deverman.ejectalldisks.streamDeckPlugin org.deverman.ejectalldisks.sdPlugin \
-            -x "*.DS_Store" \
-            -x "*/logs/*" \
-            -x "*.log" \
-            -x "*/.git/*" \
-            -x "*/.gitignore" \
-            -x "*/pi/*"
+
+          # Use streamdeck pack for proper packaging
+          streamdeck pack "$PLUGIN_DIR" --output dist
+
+          # Rename to expected filename if needed
+          if [ -f "dist/org.deverman.ejectalldisks.sdPlugin.streamDeckPlugin" ]; then
+            mv "dist/org.deverman.ejectalldisks.sdPlugin.streamDeckPlugin" \
+               "dist/org.deverman.ejectalldisks.streamDeckPlugin"
+          fi
+
+          echo "✅ Package created"
 
       - name: Verify package
         run: |
           if [ ! -f "dist/org.deverman.ejectalldisks.streamDeckPlugin" ]; then
             echo "Error: Package file not found"
+            ls -la dist/
             exit 1
           fi
           ls -lh dist/org.deverman.ejectalldisks.streamDeckPlugin
-          echo "Package created successfully"
+          echo "✅ Package verified"
 
       - name: Upload plugin artifact
         uses: actions/upload-artifact@v4

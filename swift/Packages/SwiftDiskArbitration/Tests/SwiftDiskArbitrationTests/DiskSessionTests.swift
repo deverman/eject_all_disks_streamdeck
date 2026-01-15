@@ -6,6 +6,7 @@
 //
 
 import Testing
+import Foundation
 
 @testable import SwiftDiskArbitration
 
@@ -13,20 +14,20 @@ import Testing
 struct DiskSessionTests {
 
   @Test("Shared session is available")
-  func sharedSession() {
+  func sharedSession() async {
     // Should not crash
     let session = DiskSession.shared
-    #expect(session.ejectableVolumeCount() >= 0)
+    #expect(await session.ejectableVolumeCount() >= 0)
   }
 
   @Test("Multiple sessions can coexist")
-  func multipleSessions() throws {
+  func multipleSessions() async throws {
     let session1 = try DiskSession()
     let session2 = try DiskSession()
 
     // Both should work independently
-    let count1 = session1.ejectableVolumeCount()
-    let count2 = session2.ejectableVolumeCount()
+    let count1 = await session1.ejectableVolumeCount()
+    let count2 = await session2.ejectableVolumeCount()
 
     #expect(count1 == count2, "Both sessions should see the same volumes")
   }
@@ -160,9 +161,9 @@ struct IntegrationTests {
   // Run manually when testing with real hardware
 
   @Test("Can enumerate real volumes")
-  func enumerateRealVolumes() throws {
+  func enumerateRealVolumes() async throws {
     let session = try DiskSession()
-    let volumes = session.enumerateEjectableVolumes()
+    let volumes = await session.enumerateEjectableVolumes()
 
     for volume in volumes {
       print("Found: \(volume)")
@@ -174,7 +175,7 @@ struct IntegrationTests {
   @Test("Can eject real volume")
   func ejectRealVolume() async throws {
     let session = try DiskSession()
-    let volumes = session.enumerateEjectableVolumes()
+    let volumes = await session.enumerateEjectableVolumes()
 
     guard let volume = volumes.first else {
       Issue.record("No external volumes to test with")

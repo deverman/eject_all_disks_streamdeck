@@ -4,9 +4,10 @@ node_modules/
 # Build output
 dist/
 
-# Stream Deck files - ignore built files but keep setup script
+# Stream Deck files - ignore built binaries/logs
 *.sdPlugin/bin/*
-!*.sdPlugin/bin/install-eject-privileges.sh
 *.sdPlugin/logs
 
 .DS_Store
+
+.build

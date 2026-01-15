@@ -6,10 +6,10 @@
 //
 //  Features:
 //  - Async/await APIs for disk operations
-//  - Swift 6 strict concurrency compliance
+//  - Swift concurrency-friendly design (actors + async/await)
 //  - No subprocess spawning (direct kernel communication)
-//  - 10x faster than diskutil command-line tool
-//  - Proper memory management with no leaks
+//  - Typically faster than diskutil command-line tool
+//  - Balanced retain/release for callback bridging
 //
 //  Usage:
 //  ```swift

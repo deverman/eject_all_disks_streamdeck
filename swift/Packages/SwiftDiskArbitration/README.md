@@ -1,20 +1,20 @@
 # SwiftDiskArbitration
 
-A modern Swift 6 wrapper for macOS DiskArbitration framework with async/await support.
+A modern Swift wrapper for macOS DiskArbitration framework with async/await support.
 
 ## Features
 
-- **10x faster** disk ejection compared to `diskutil` subprocess
-- **Swift 6** strict concurrency compliant
+- **Fast** disk ejection compared to `diskutil` subprocess (no process spawning)
+- **Swift concurrency** friendly APIs (actors + async/await)
 - **Async/await** APIs for all disk operations
-- **No memory leaks** - proper continuation and reference management
+- Timeout-protected unmount/eject operations (prevents hangs)
 - **Actor-based** session management for thread safety
 - Direct `DADiskUnmount` calls (no subprocess spawning)
 
 ## Requirements
 
 - macOS 13.0+
-- Swift 6.0+
+- Swift 6.2.1+
 - Xcode 15+
 
 ## Installation
@@ -142,6 +142,8 @@ do {
 ```
 
 ## Performance Comparison
+
+These numbers are illustrative and vary by machine, connected devices, and filesystem state (Spotlight, open files, etc.).
 
 | Method                        | 1 disk  | 3 disks  | 5 disks |
 | ----------------------------- | ------- | -------- | ------- |
