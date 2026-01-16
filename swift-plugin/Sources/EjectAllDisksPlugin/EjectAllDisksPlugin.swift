@@ -27,9 +27,9 @@ class EjectAllDisksPlugin: Plugin {
 
     // MARK: - Plugin Metadata
 
-    static var name: String = "Eject All Disks"
-    static var description: String = "Ejects all external hard disks"
-    static var category: String? = "Eject All Disks"
+    static var name: String = "SafeEject: One-Push Disk Manager"
+    static var description: String = "One-push safe ejection for all your external drives. Essential utility for macOS."
+    static var category: String? = "Drive Manager"
     static var categoryIcon: String? = "imgs/plugin/category-icon"
     static var author: String = "Brent Deverman"
     static var icon: String = "imgs/plugin/marketplace"
@@ -37,7 +37,7 @@ class EjectAllDisksPlugin: Plugin {
     static var uuid: String = "org.deverman.ejectalldisks"
 
     static var os: [PluginOS] = [.macOS("13")]
-    static var software: PluginSoftware = .minimumVersion("6.4")
+    static var software: PluginSoftware = .minimumVersion("6.9")
 
     // MARK: - Actions
 

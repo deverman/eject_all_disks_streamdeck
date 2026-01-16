@@ -91,7 +91,7 @@ class EjectAction: KeyAction {
 
     typealias Settings = EjectActionSettings
 
-    static var name: String = "Eject All Disks"
+    static var name: String = "SafeEject All"
     static var uuid: String = "org.deverman.ejectalldisks.eject"
     static var icon: String = "imgs/actions/eject/icon"
     static var propertyInspectorPath: String? = "ui/eject-all-disks.html"
