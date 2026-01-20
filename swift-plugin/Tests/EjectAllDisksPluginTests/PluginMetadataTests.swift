@@ -17,7 +17,7 @@ struct PluginMetadataTests {
 
     @Test("Plugin has correct name")
     func pluginName() {
-        #expect(EjectAllDisksPlugin.name == "Eject All Disks")
+        #expect(EjectAllDisksPlugin.name == "SafeEject: One-Push Disk Manager")
     }
 
     @Test("Plugin has description")
@@ -71,7 +71,7 @@ struct EjectActionMetadataTests {
 
     @Test("Action has correct name")
     func actionName() {
-        #expect(EjectAction.name == "Eject All Disks")
+        #expect(EjectAction.name == "SafeEject All")
     }
 
     @Test("Action has correct UUID")
