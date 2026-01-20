@@ -91,14 +91,14 @@ class EjectAction: KeyAction {
 
     typealias Settings = EjectActionSettings
 
-    static var name: String = "Eject All Disks"
+    static var name: String = "SafeEject All"
     static var uuid: String = "org.deverman.ejectalldisks.eject"
     static var icon: String = "imgs/actions/eject/icon"
     static var propertyInspectorPath: String? = "ui/eject-all-disks.html"
 
     static var states: [PluginActionState]? = [
         PluginActionState(
-            image: "imgs/actions/eject/state",
+            image: "imgs/actions/eject/icon",
             titleAlignment: .middle
         )
     ]
@@ -298,7 +298,6 @@ class EjectAction: KeyAction {
                 if debugLoggingEnabled {
                     log.debug("No disks to eject")
                 }
-                setImage(toImage: "success", withExtension: "svg", subdirectory: "imgs/actions/eject")
                 setTitle(to: showTitle ? "No Disks" : nil, target: nil, state: nil)
                 showOk()
             } else {
@@ -310,11 +309,9 @@ class EjectAction: KeyAction {
                 logResults(result)
 
                 if result.failedCount == 0 {
-                    setImage(toImage: "success", withExtension: "svg", subdirectory: "imgs/actions/eject")
                     setTitle(to: showTitle ? "Ejected!" : nil, target: nil, state: nil)
                     showOk()
                 } else {
-                    setImage(toImage: "error", withExtension: "svg", subdirectory: "imgs/actions/eject")
                     // Show detailed error: "1 of 3 Failed" or specific error type
                     let errorTitle = formatErrorTitle(result: result, showTitle: showTitle)
                     setTitle(to: errorTitle, target: nil, state: nil)
@@ -326,7 +323,6 @@ class EjectAction: KeyAction {
             }
         } catch {
             log.error("Failed to create DiskSession: \(error.localizedDescription)")
-            setImage(toImage: "error", withExtension: "svg", subdirectory: "imgs/actions/eject")
             setTitle(to: showTitle ? "Failed" : nil, target: nil, state: nil)
             showAlert()
         }
@@ -338,6 +334,8 @@ class EjectAction: KeyAction {
 
         // Refresh disk count immediately before updating display
         self.diskCount = await DiskSession.shared.ejectableVolumeCount()
+        setImage(toImage: "icon", withExtension: "svg", subdirectory: "imgs/actions/eject")
+
         updateDisplay(showTitle: showTitle)
         if debugLoggingEnabled {
             log.debug("Display reset to normal state, disk count: \(self.diskCount)")
@@ -363,7 +361,6 @@ class EjectAction: KeyAction {
             log.debug("updateDisplay: context=\(self.context), title=\(title ?? "nil"), showTitle=\(showTitle)")
         }
 
-        setImage(toImage: "state", withExtension: "svg", subdirectory: "imgs/actions/eject")
         setTitle(to: title, target: nil, state: nil)
     }
 
