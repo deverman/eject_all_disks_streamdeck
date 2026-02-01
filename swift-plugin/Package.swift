@@ -19,7 +19,7 @@ let package = Package(
     ],
     dependencies: [
         // StreamDeck SDK for native Swift plugin development
-        .package(url: "https://github.com/deverman/StreamDeckPlugin.git", branch: "passstreamdeckvalidate"),
+        .package(url: "https://github.com/deverman/StreamDeckPlugin.git", branch: "main"),
         // Local SwiftDiskArbitration package for disk operations
         .package(path: "../swift/Packages/SwiftDiskArbitration")
     ],
