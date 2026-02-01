@@ -266,9 +266,15 @@ extension Volume {
         continue
       }
 
-      // Additional safety check using DiskArbitration properties
-      // This catches edge cases the URL resource values might miss
+      // Additional safety checks using DiskArbitration properties
+      // These catch edge cases the URL resource values might miss
       if isSystemVolume(disk: disk) {
+        continue
+      }
+
+      // Backup check: Skip network volumes detected by filesystem type
+      // Some NAS setups don't report correctly via volumeIsLocalKey
+      if isNetworkVolume(disk: disk) {
         continue
       }
 
@@ -295,6 +301,37 @@ extension Volume {
     }
 
     return volumes
+  }
+
+  /// List of network filesystem types that should never be ejected.
+  /// These are used as a backup check when volumeIsLocalKey fails to detect network volumes.
+  private static let networkFilesystemTypes: Set<String> = [
+    "smbfs",      // SMB/CIFS (Windows/Samba shares)
+    "afpfs",      // Apple Filing Protocol
+    "nfs",        // Network File System
+    "webdav",     // WebDAV
+    "ftp",        // FTP mounts
+    "ftps",       // FTPS mounts
+    "davfs",      // DAVFS
+    "cifs",       // Common Internet File System
+  ]
+
+  /// Checks if a volume is a network volume using DiskArbitration filesystem type.
+  /// This is a backup detection method when volumeIsLocalKey fails for certain NAS setups.
+  private static func isNetworkVolume(disk: DADisk) -> Bool {
+    guard let description = DADiskCopyDescription(disk) as? [String: Any] else {
+      // If we can't get the description, be conservative and assume it's not network
+      return false
+    }
+
+    // Check the filesystem type - network filesystems should be skipped
+    if let volumeKind = description[kDADiskDescriptionVolumeKindKey as String] as? String {
+      if networkFilesystemTypes.contains(volumeKind.lowercased()) {
+        return true
+      }
+    }
+
+    return false
   }
 
   /// Checks if a disk is a system volume using DiskArbitration properties.
