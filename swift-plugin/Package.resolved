@@ -5,8 +5,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/deverman/StreamDeckPlugin.git",
       "state" : {
-        "branch" : "passstreamdeckvalidate",
-        "revision" : "bd91c9005821784b04306d2139afaea1ebd835e6"
+        "branch" : "main",
+        "revision" : "7eb2a8fe2016316ac53aac41ddbe47bac7f1420d"
       }
     },
     {
