@@ -33,7 +33,7 @@ class EjectAllDisksPlugin: Plugin {
     static var categoryIcon: String? = "imgs/plugin/category-icon"
     static var author: String = "Brent Deverman"
     static var icon: String = "imgs/plugin/marketplace"
-    static var version: String = "3.0.0.1"
+    static var version: String = "3.0.2"
     static var uuid: String = "org.deverman.ejectalldisks"
 
     static var os: [PluginOS] = [.macOS("13")]
