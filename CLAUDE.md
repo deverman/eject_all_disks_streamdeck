@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-01-11
 
-This document provides comprehensive guidelines for developing Swift-native Stream Deck plugins using the [StreamDeckPlugin](https://github.com/emorydunn/StreamDeckPlugin) library. It captures architecture patterns, best practices, and lessons learned from production plugin development.
+This document provides comprehensive guidelines for developing Swift-native Stream Deck plugins using the [StreamDeckPlugin](https://github.com/deverman/StreamDeckPlugin) library. It captures architecture patterns, best practices, and lessons learned from production plugin development.
 
 ---
 
@@ -77,7 +77,7 @@ your-plugin-name/
 
 | Dependency | Purpose | Source |
 |------------|---------|--------|
-| StreamDeckPlugin | Swift SDK for Stream Deck plugins | `https://github.com/emorydunn/StreamDeckPlugin.git` |
+| StreamDeckPlugin | Swift SDK for Stream Deck plugins | `https://github.com/deverman/StreamDeckPlugin.git` |
 | Swift Testing | Modern test framework | Built into Swift 6.2.1+ |
 
 ### Plugin vs Action Architecture
@@ -101,7 +101,7 @@ import PackageDescription
 let package = Package(
     name: "YourPluginName",
     platforms: [
-        .macOS(.v13)  // Stream Deck 6.4+ requires macOS 13+
+        .macOS(.v13)  // Stream Deck 6.9+ requires macOS 13+
     ],
     products: [
         .executable(
@@ -110,7 +110,7 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/emorydunn/StreamDeckPlugin.git", from: "0.6.0"),
+        .package(url: "https://github.com/deverman/StreamDeckPlugin.git", branch: "main"),
         // Add your own dependencies here
     ],
     targets: [
@@ -206,7 +206,7 @@ class YourPluginName: Plugin {
     "Icon": "imgs/plugin/marketplace",
     "SDKVersion": 2,
     "Software": {
-        "MinimumVersion": "6.4"
+        "MinimumVersion": "6.9"
     },
     "OS": [
         {
@@ -868,7 +868,7 @@ See `MARKETPLACE_ASSETS.md` for complete marketing copy and image specifications
 
 ## Resources
 
-- [StreamDeckPlugin Library](https://github.com/emorydunn/StreamDeckPlugin)
+- [StreamDeckPlugin Library](https://github.com/deverman/StreamDeckPlugin)
 - [Stream Deck SDK Documentation](https://docs.elgato.com/sdk/)
 - [Stream Deck CLI](https://www.npmjs.com/package/@elgato/cli)
 - [Swift Concurrency Guide](https://docs.swift.org/swift-book/LanguageGuide/Concurrency.html)

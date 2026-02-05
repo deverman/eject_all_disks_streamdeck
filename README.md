@@ -1,6 +1,6 @@
-# Eject All Disks - Stream Deck Plugin
+# SafeEject: One-Push Disk Manager
 
-A Stream Deck plugin that adds a button to safely eject all external disks on macOS with a single button press. This plugin provides visual feedback during the ejection process and allows customization of the button appearance.
+SafeEject is a Stream Deck plugin that adds a button to safely eject all external disks on macOS with a single button press. This plugin provides visual feedback during the ejection process and allows customization of the button appearance.
 
 ## Features
 
@@ -16,7 +16,7 @@ A Stream Deck plugin that adds a button to safely eject all external disks on ma
 ## Requirements
 
 - macOS 13 or later
-- Stream Deck 6.4 or later
+- Stream Deck 6.9 or later
 - **Full Disk Access permission** (see [Permissions](#permissions) below)
 - Xcode Command Line Tools (for building from source)
 
@@ -57,7 +57,7 @@ The macOS DiskArbitration framework requires elevated permissions to unmount and
 
 ## Usage
 
-1. Drag the "Eject All Disks" action from the "Eject All Disks" category onto your Stream Deck
+1. Drag the "SafeEject All" action from the "SafeEject: One-Push Disk Manager" category onto your Stream Deck
 2. The button will automatically display the number of external disks currently attached
 3. The count updates automatically every 3 seconds as you mount/unmount disks
 4. Press the button to eject all external disks
@@ -102,11 +102,11 @@ eject_all_disks_streamdeck/
 │   └── build.sh                     # Build script
 ├── swift/                           # SwiftDiskArbitration library
 │   └── Packages/SwiftDiskArbitration/
-├── org.deverman.ejectalldisks.sdPlugin/  # Plugin bundle
-│   ├── org.deverman.ejectalldisks   # Compiled binary (after build)
+├── org.deverman.ejectalldisks.sdPlugin/  # Plugin bundle assets
+│   ├── org.deverman.ejectalldisks   # Compiled binary (in installed bundle after export)
 │   ├── ui/                          # Property Inspector HTML
 │   ├── imgs/                        # Icons and images
-│   └── manifest.json                # Plugin configuration
+│   └── manifest.json                # Generated during export (not stored in repo)
 └── README.md                        # This file
 ```
 
@@ -180,10 +180,12 @@ tail -f ~/Library/Logs/com.elgato.StreamDeck/StreamDeck0.log
 
 **Plugin doesn't appear in Stream Deck:**
 
-- Ensure the binary exists: `ls org.deverman.ejectalldisks.sdPlugin/org.deverman.ejectalldisks`
+- Ensure the binary exists in the installed bundle:
+  `~/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin/org.deverman.ejectalldisks`
 - Run `./build.sh --install` to build and install the plugin
 - Restart Stream Deck application completely
-- Check that `manifest.json` has correct paths
+- Check that the generated `manifest.json` exists in the installed bundle:
+  `~/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin/manifest.json`
 
 **Build errors:**
 
@@ -205,12 +207,13 @@ cd swift-plugin
 ./build.sh --install
 
 # Package using Stream Deck CLI (recommended)
-cd ..
-streamdeck pack org.deverman.ejectalldisks.sdPlugin
+# Note: manifest.json is generated during export into the installed bundle.
+PLUGIN_DIR="$HOME/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin"
+streamdeck pack "$PLUGIN_DIR"
 
 # Or manually create a .streamDeckPlugin file
 # zip -r org.deverman.ejectalldisks.streamDeckPlugin \
-#   org.deverman.ejectalldisks.sdPlugin \
+#   "$PLUGIN_DIR" \
 #   -x "*.DS_Store" -x "*/logs/*" -x "*.log"
 ```
 
@@ -220,7 +223,7 @@ The `streamdeck pack` command creates a properly formatted `.streamDeckPlugin` f
 
 ### Swift Plugin Structure
 
-The plugin uses the [StreamDeckPlugin](https://github.com/emorydunn/StreamDeckPlugin) Swift library:
+The plugin uses the [StreamDeckPlugin](https://github.com/deverman/StreamDeckPlugin) Swift library:
 
 - **EjectAllDisksPlugin** - Main plugin class that handles initialization and disk monitoring
 - **EjectAction** - KeyAction that responds to button presses and manages the eject operation

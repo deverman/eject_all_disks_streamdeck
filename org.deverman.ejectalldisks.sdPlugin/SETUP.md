@@ -1,4 +1,4 @@
-# Eject All Disks - Permissions Setup
+# SafeEject: One-Push Disk Manager - Permissions Setup
 
 This plugin ejects disks using macOS’s native DiskArbitration APIs. It does **not** install helpers, create sudoers rules, or require `sudo`.
 
