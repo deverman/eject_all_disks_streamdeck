@@ -61,6 +61,34 @@ import OSLog
 fileprivate let log = Logger(subsystem: "org.deverman.ejectalldisks", category: "action")
 fileprivate let debugLoggingEnabled = ProcessInfo.processInfo.environment["EJECT_ALL_DISKS_DEBUG"] == "1"
 
+/// Process-local eject state shared across action instances.
+///
+/// This intentionally is not persisted in Stream Deck global settings. Persisting
+/// transient state can leave the plugin stuck after Stream Deck quits or macOS
+/// reboots during an eject operation.
+private final class EjectOperationState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var inProgress = false
+
+    func begin() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard !inProgress else {
+            return false
+        }
+
+        inProgress = true
+        return true
+    }
+
+    func finish() {
+        lock.lock()
+        inProgress = false
+        lock.unlock()
+    }
+}
+
 /// Settings for the Eject action
 struct EjectActionSettings: Codable, Hashable, Sendable {
     var showTitle: Bool = true
@@ -108,8 +136,8 @@ class EjectAction: KeyAction {
     var context: String
     var coordinates: StreamDeck.Coordinates?
 
-    /// Access to global ejecting state
-    @GlobalSetting(\.isEjecting) var isEjecting: Bool
+    /// Shared in-memory state that prevents simultaneous eject operations.
+    private static let ejectOperationState = EjectOperationState()
 
     /// Timer for polling disk count
     private var pollingTimer: DispatchSourceTimer?
@@ -139,6 +167,7 @@ class EjectAction: KeyAction {
     // MARK: - Lifecycle Events
 
     func willAppear(device: String, payload: AppearEvent<Settings>) {
+        log.info("Action appeared")
         if debugLoggingEnabled {
             log.debug("Action appeared: context=\(self.context), device=\(device), isInMultiAction=\(payload.isInMultiAction)")
         }
@@ -178,6 +207,7 @@ class EjectAction: KeyAction {
     }
 
     func willDisappear(device: String, payload: AppearEvent<Settings>) {
+        log.info("Action disappeared")
         if debugLoggingEnabled {
             log.debug("Action disappeared from device \(device)")
         }
@@ -259,14 +289,19 @@ class EjectAction: KeyAction {
     // MARK: - Key Events
 
     func keyUp(device: String, payload: KeyEvent<Settings>, longPress: Bool) {
-        if longPress { return }
+        log.info("Key up received: longPress=\(longPress, privacy: .public)")
+
+        if longPress {
+            log.info("Ignoring long press key release")
+            return
+        }
 
         if debugLoggingEnabled {
             log.debug("Key up - starting eject operation")
         }
 
         // Prevent multiple simultaneous eject operations
-        guard !isEjecting else {
+        guard Self.ejectOperationState.begin() else {
             log.warning("Eject already in progress, ignoring key press")
             return
         }
@@ -284,7 +319,12 @@ class EjectAction: KeyAction {
     /// Performs the disk eject operation
     @MainActor
     private func performEject(showTitle: Bool) async {
-        isEjecting = true
+        defer {
+            Self.ejectOperationState.finish()
+            log.info("Eject operation state cleared")
+        }
+
+        log.info("Eject operation started")
 
         // Show ejecting state
         setImage(toImage: "ejecting", withExtension: "svg", subdirectory: "imgs/actions/eject")
@@ -293,11 +333,10 @@ class EjectAction: KeyAction {
         do {
             let session = try DiskSession()
             let volumes = await session.enumerateEjectableVolumes()
+            log.info("Enumerated ejectable volumes: count=\(volumes.count, privacy: .public)")
 
             if volumes.isEmpty {
-                if debugLoggingEnabled {
-                    log.debug("No disks to eject")
-                }
+                log.info("No disks to eject")
                 setTitle(to: showTitle ? "No Disks" : nil, target: nil, state: nil)
                 showOk()
             } else {
@@ -330,10 +369,9 @@ class EjectAction: KeyAction {
         // Reset display after delay
         try? await Task.sleep(for: .seconds(2))
 
-        isEjecting = false
-
         // Refresh disk count immediately before updating display
         self.diskCount = await DiskSession.shared.ejectableVolumeCount()
+        log.info("Post-eject disk count refreshed: count=\(self.diskCount, privacy: .public)")
         setImage(toImage: "icon", withExtension: "svg", subdirectory: "imgs/actions/eject")
 
         updateDisplay(showTitle: showTitle)
@@ -368,12 +406,60 @@ class EjectAction: KeyAction {
     /// PRIVACY: We don't log volume names as they may contain sensitive information.
     /// Volume names like "ConfidentialProject" or "ClientBackup" could reveal user data.
     private func logResults(_ result: BatchEjectResult) {
-        if debugLoggingEnabled {
-            log.debug("Eject completed: \(result.successCount)/\(result.totalCount) succeeded")
-        }
+        log.info(
+            "Eject completed: success=\(result.successCount, privacy: .public), failed=\(result.failedCount, privacy: .public), total=\(result.totalCount, privacy: .public), duration=\(result.totalDuration, privacy: .public)s"
+        )
+
         if result.failedCount > 0 {
-            log.warning("\(result.failedCount) volume(s) failed to eject")
+            log.warning("\(result.failedCount, privacy: .public) volume(s) failed to eject")
         }
+
+        for singleResult in result.results where !singleResult.success {
+            let bsdName = singleResult.bsdName ?? "unknown"
+            let category = diagnosticCategory(for: singleResult.errorMessage)
+            log.warning(
+                "Eject failure: bsd=\(bsdName, privacy: .public), category=\(category, privacy: .public), duration=\(singleResult.duration, privacy: .public)s"
+            )
+            if debugLoggingEnabled, let errorMessage = singleResult.errorMessage {
+                log.debug("Eject failure detail: bsd=\(bsdName, privacy: .public), message=\(errorMessage, privacy: .private)")
+            }
+        }
+    }
+
+    /// Converts detailed system errors into a sanitized diagnostic category.
+    private func diagnosticCategory(for message: String?) -> String {
+        guard let message else {
+            return "unknown"
+        }
+
+        let normalized = message.lowercased()
+
+        if normalized.contains("permission") || normalized.contains("permitted") {
+            return "permission"
+        }
+        if normalized.contains("privilege") {
+            return "privilege"
+        }
+        if normalized.contains("busy") || normalized.contains("exclusive") || normalized.contains("in use") {
+            return "busy"
+        }
+        if normalized.contains("timeout") || normalized.contains("timed out") {
+            return "timeout"
+        }
+        if normalized.contains("not mounted") {
+            return "not_mounted"
+        }
+        if normalized.contains("not found") {
+            return "not_found"
+        }
+        if normalized.contains("not ready") {
+            return "not_ready"
+        }
+        if normalized.contains("unsupported") {
+            return "unsupported"
+        }
+
+        return "other"
     }
 
     /// Formats a user-friendly error title based on the eject result

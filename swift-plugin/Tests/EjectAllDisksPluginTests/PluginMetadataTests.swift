@@ -36,9 +36,9 @@ struct PluginMetadataTests {
         let version = EjectAllDisksPlugin.version
         #expect(!version.isEmpty)
 
-        // Should be in semver-like format (x.y.z)
         let components = version.split(separator: ".")
-        #expect(components.count >= 2, "Version should have at least major.minor")
+        #expect(components.count == 4, "Stream Deck CLI expects major.minor.patch.build")
+        #expect(components.allSatisfy { Int($0) != nil }, "Version components should be numeric")
     }
 
     @Test("Plugin has icon path")

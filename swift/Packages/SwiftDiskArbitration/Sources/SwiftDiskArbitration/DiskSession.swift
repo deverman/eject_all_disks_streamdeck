@@ -81,6 +81,9 @@ public struct SingleEjectResult: Sendable, Codable {
   /// Path to the volume
   public let volumePath: String
 
+  /// BSD device name, safe to include in diagnostic logs (e.g., disk2s1)
+  public let bsdName: String?
+
   /// Whether the ejection succeeded
   public let success: Bool
 
@@ -333,6 +336,7 @@ public actor DiskSession {
         SingleEjectResult(
           volumeName: volume.info.name,
           volumePath: volume.info.path,
+          bsdName: volume.info.bsdName,
           success: false,
           errorMessage: "Session is invalid",
           duration: 0
@@ -422,6 +426,7 @@ public actor DiskSession {
           SingleEjectResult(
             volumeName: volume.info.name,
             volumePath: volume.info.path,
+            bsdName: volume.info.bsdName,
             success: false,
             errorMessage: unmountResult.error?.description ?? "Unmount failed",
             duration: unmountResult.duration
@@ -438,6 +443,7 @@ public actor DiskSession {
         SingleEjectResult(
           volumeName: volume.info.name,
           volumePath: volume.info.path,
+          bsdName: volume.info.bsdName,
           success: ejectResult.success,
           errorMessage: ejectResult.error?.description,
           duration: totalDuration
@@ -453,6 +459,7 @@ public actor DiskSession {
           SingleEjectResult(
             volumeName: volume.info.name,
             volumePath: volume.info.path,
+            bsdName: volume.info.bsdName,
             success: result.success,
             errorMessage: result.error?.description,
             duration: result.duration

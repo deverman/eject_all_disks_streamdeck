@@ -119,6 +119,7 @@ struct BatchEjectResultTests {
     let result = SingleEjectResult(
       volumeName: "USB Drive",
       volumePath: "/Volumes/USB Drive",
+      bsdName: "disk2s1",
       success: true,
       errorMessage: nil,
       duration: 0.05
@@ -132,6 +133,7 @@ struct BatchEjectResultTests {
 
     #expect(decoded.volumeName == result.volumeName)
     #expect(decoded.volumePath == result.volumePath)
+    #expect(decoded.bsdName == result.bsdName)
     #expect(decoded.success == result.success)
     #expect(decoded.errorMessage == result.errorMessage)
     #expect(decoded.duration == result.duration)
@@ -142,6 +144,7 @@ struct BatchEjectResultTests {
     let result = SingleEjectResult(
       volumeName: "Busy Drive",
       volumePath: "/Volumes/Busy Drive",
+      bsdName: "disk3s1",
       success: false,
       errorMessage: "Spotlight is indexing",
       duration: 0.01
