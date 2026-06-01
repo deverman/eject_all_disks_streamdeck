@@ -15,12 +15,6 @@ import OSLog
 fileprivate let log = Logger(subsystem: "org.deverman.ejectalldisks", category: "plugin")
 fileprivate let debugLoggingEnabled = ProcessInfo.processInfo.environment["EJECT_ALL_DISKS_DEBUG"] == "1"
 
-/// Global settings shared across all actions
-extension GlobalSettings {
-    /// Whether an eject operation is currently in progress
-    @Entry var isEjecting: Bool = false
-}
-
 /// Main plugin class for Eject All Disks
 @main
 class EjectAllDisksPlugin: Plugin {
@@ -33,7 +27,7 @@ class EjectAllDisksPlugin: Plugin {
     static var categoryIcon: String? = "imgs/plugin/category-icon"
     static var author: String = "Brent Deverman"
     static var icon: String = "imgs/plugin/marketplace"
-    static var version: String = "3.0.2"
+    static var version: String = "3.0.3.0"
     static var uuid: String = "org.deverman.ejectalldisks"
 
     static var os: [PluginOS] = [.macOS("13")]
@@ -54,6 +48,7 @@ class EjectAllDisksPlugin: Plugin {
     // MARK: - Initialization
 
     required init() {
+        log.info("EjectAllDisksPlugin initialized")
         if debugLoggingEnabled {
             log.debug("EjectAllDisksPlugin initialized")
         }

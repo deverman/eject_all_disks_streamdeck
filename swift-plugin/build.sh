@@ -19,6 +19,34 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+validate_plugin_bundle() {
+    local install_dir="$1"
+    local validate_output
+    local validate_status
+
+    set +e
+    validate_output="$(streamdeck validate --no-update-check "$install_dir" 2>&1)"
+    validate_status=$?
+    set -e
+
+    printf '%s\n' "$validate_output"
+
+    if printf '%s\n' "$validate_output" | grep -Eq '^[[:space:]]*[0-9]+:[0-9]+[[:space:]]+error[[:space:]]'; then
+        echo -e "${RED}Plugin validation failed with errors.${NC}" >&2
+        exit 1
+    fi
+
+    if [ "$validate_status" -ne 0 ]; then
+        if printf '%s\n' "$validate_output" | grep -Eq '0 errors?, [1-9][0-9]* warnings?'; then
+            echo -e "${YELLOW}Plugin validation completed with warnings only.${NC}"
+            return 0
+        fi
+
+        echo -e "${RED}streamdeck validate failed unexpectedly.${NC}" >&2
+        exit "$validate_status"
+    fi
+}
+
 echo -e "${GREEN}Building EjectAllDisksPlugin...${NC}"
 
 # Change to the swift-plugin directory
@@ -59,8 +87,8 @@ if [ "$1" == "--install" ]; then
 
     if command -v streamdeck >/dev/null 2>&1; then
         echo ""
-        echo -e "${YELLOW}Validating plugin bundle (non-fatal)...${NC}"
-        streamdeck validate "$INSTALL_DIR" || true
+        echo -e "${YELLOW}Validating plugin bundle...${NC}"
+        validate_plugin_bundle "$INSTALL_DIR"
     fi
 else
     echo ""
