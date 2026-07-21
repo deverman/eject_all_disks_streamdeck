@@ -14,9 +14,8 @@ import Foundation
 struct DiskSessionTests {
 
   @Test("Shared session is available")
-  func sharedSession() async {
-    // Should not crash
-    let session = DiskSession.shared
+  func sharedSession() async throws {
+    let session = try #require(DiskSession.shared)
     #expect(await session.ejectableVolumeCount() >= 0)
   }
 

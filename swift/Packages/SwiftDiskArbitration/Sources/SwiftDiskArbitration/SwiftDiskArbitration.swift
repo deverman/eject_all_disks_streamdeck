@@ -37,25 +37,36 @@
 // MARK: - Convenience Functions
 
 /// Enumerates all ejectable volumes using the shared session.
+/// Returns an empty array if the shared session is unavailable.
 /// - Returns: Array of volumes that can be ejected
 public func enumerateEjectableVolumes() async -> [Volume] {
-  return await DiskSession.shared.enumerateEjectableVolumes()
+  guard let session = DiskSession.shared else { return [] }
+  return await session.enumerateEjectableVolumes()
 }
 
 /// Returns the count of ejectable volumes.
+/// Returns 0 if the shared session is unavailable.
 /// - Returns: Number of external/ejectable volumes currently mounted
 public func ejectableVolumeCount() async -> Int {
-  return await DiskSession.shared.ejectableVolumeCount()
+  guard let session = DiskSession.shared else { return 0 }
+  return await session.ejectableVolumeCount()
 }
 
 /// Ejects all external volumes using the shared session.
+/// Returns an empty failed batch if the shared session is unavailable.
 /// - Parameter options: Options for the eject operation
 /// - Returns: Result of the batch operation
 public func ejectAllExternalVolumes(options: EjectOptions = .default) async -> BatchEjectResult {
-  return await DiskSession.shared.ejectAllExternal(options: options)
+  guard let session = DiskSession.shared else {
+    return BatchEjectResult(
+      totalCount: 0, successCount: 0, failedCount: 0, results: [], totalDuration: 0
+    )
+  }
+  return await session.ejectAllExternal(options: options)
 }
 
 /// Ejects a single volume by path.
+/// Fails with a session error if the shared session is unavailable.
 /// - Parameters:
 ///   - path: Path to the volume mount point
 ///   - options: Options for the eject operation
@@ -63,7 +74,10 @@ public func ejectAllExternalVolumes(options: EjectOptions = .default) async -> B
 public func ejectVolume(at path: String, options: EjectOptions = .default) async
   -> DiskOperationResult
 {
-  return await DiskSession.shared.unmount(path: path, options: options)
+  guard let session = DiskSession.shared else {
+    return DiskOperationResult(success: false, error: .sessionCreationFailed, duration: 0)
+  }
+  return await session.unmount(path: path, options: options)
 }
 
 // MARK: - Version Info

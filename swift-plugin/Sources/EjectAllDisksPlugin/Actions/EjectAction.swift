@@ -11,8 +11,9 @@
 //
 // WHAT THIS FILE DOES:
 // --------------------
-// Implements the Stream Deck button that ejects all external drives when pressed.
-// Shows the current disk count on the button and updates it every 3 seconds.
+// Implements the Stream Deck button that ejects all external drives when
+// pressed. Shows the current disk count on the button, updated the moment a
+// volume mounts or unmounts.
 //
 // KEY CONCEPTS:
 // -------------
@@ -23,37 +24,33 @@
 //    - Handle lifecycle events (willAppear, willDisappear)
 //    - Handle key events (keyUp, keyDown)
 //
-// 2. @GlobalSetting PROPERTY WRAPPER
-//    The `@GlobalSetting(\.isEjecting)` syntax creates a shared variable.
-//    All instances of EjectAction see the same `isEjecting` value.
-//    This prevents multiple simultaneous eject operations.
+// 2. DiskCountMonitor (EVENT-DRIVEN UPDATES)
+//    Instead of each key polling every few seconds, one shared monitor
+//    listens for NSWorkspace mount/unmount notifications and pushes the
+//    disk count to every subscribed key. See DiskCountMonitor.swift.
 //
-// 3. DispatchSourceTimer (POLLING)
-//    We poll for disk count every 3 seconds using a timer.
-//    Why not use notifications? DiskArbitration notifications are unreliable.
-//    Polling is simple, predictable, and "just works."
+//    Lifecycle:
+//      willAppear    → subscribe
+//      willDisappear → unsubscribe
 //
-//    Timer lifecycle:
-//      willAppear  → start timer
-//      willDisappear → stop timer
-//
-// 4. @MainActor
+// 3. @MainActor
 //    The `@MainActor` attribute means "run this on the main thread."
 //    UI updates must happen on the main thread, so performEject() uses it.
 //
-// 5. STATE MACHINE (Button Display)
+// 4. STATE MACHINE (Button Display)
 //    The button shows different states:
 //      Normal:    "2 Disks" or "No Disks" (if 0)
 //      Ejecting:  "Ejecting..." with spinner icon
 //      Success:   "Ejected!" with checkmark icon
 //      Error:     "Error" or "Failed" with error icon
 //
-//    Note: The idle 0-disk state displays "No Disks" (matches README and tests).
+//    While an eject is in progress, count updates from the monitor are
+//    ignored so they cannot overwrite the "Ejecting…"/"Ejected!" titles.
 //
 // ============================================================================
 
 import Foundation
-import StreamDeck
+@preconcurrency import StreamDeck
 import SwiftDiskArbitration
 import OSLog
 
@@ -66,9 +63,16 @@ fileprivate let debugLoggingEnabled = ProcessInfo.processInfo.environment["EJECT
 /// This intentionally is not persisted in Stream Deck global settings. Persisting
 /// transient state can leave the plugin stuck after Stream Deck quits or macOS
 /// reboots during an eject operation.
-private final class EjectOperationState: @unchecked Sendable {
+final class EjectOperationState: @unchecked Sendable {
     private let lock = NSLock()
     private var inProgress = false
+
+    /// Whether an eject operation is currently running.
+    var isInProgress: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return inProgress
+    }
 
     func begin() -> Bool {
         lock.lock()
@@ -137,25 +141,13 @@ class EjectAction: KeyAction {
     var coordinates: StreamDeck.Coordinates?
 
     /// Shared in-memory state that prevents simultaneous eject operations.
-    private static let ejectOperationState = EjectOperationState()
+    static let ejectOperationState = EjectOperationState()
 
-    /// Timer for polling disk count
-    private var pollingTimer: DispatchSourceTimer?
-
-    /// Current disk count (locally tracked)
-    private var diskCount: Int = -1  // Start at -1 to force first update
+    /// Current disk count (pushed by DiskCountMonitor)
+    private var diskCount: Int = 0
 
     /// Cached showTitle setting
     private var showTitle: Bool = true
-
-    /// Whether this is the first appearance (needs immediate display update)
-    private var needsInitialUpdate: Bool = true
-
-    /// Whether polling has started (prevents double-start)
-    private var pollingStarted: Bool = false
-
-    /// Work item for delayed polling start (so it can be canceled on disappear)
-    private var delayedPollingStart: DispatchWorkItem?
 
     // MARK: - Initialization
 
@@ -180,30 +172,22 @@ class EjectAction: KeyAction {
         // ensures the Property Inspector sees explicit values (e.g., showTitle=true).
         setSettings(to: payload.settings)
 
-        // Reset state for this appearance
         self.showTitle = payload.settings.showTitle
-        self.needsInitialUpdate = true
-        self.diskCount = -1
-        self.pollingStarted = false
-        self.delayedPollingStart?.cancel()
-        self.delayedPollingStart = nil
 
-        if debugLoggingEnabled {
-            log.debug("willAppear: showTitle=\(self.showTitle)")
-        }
+        // Subscribe to the shared monitor. The subscriber closure fires
+        // immediately with the last known count (instant first paint) and
+        // again whenever a volume mounts or unmounts.
+        Task { @MainActor in
+            DiskCountMonitor.shared.subscribe(context: self.context) { [weak self] count in
+                guard let self else { return }
+                self.diskCount = count
 
-        // Simple approach: just start polling after a 1 second delay
-        // This gives Stream Deck time to fully register the action
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self = self, !self.pollingStarted else { return }
-            self.pollingStarted = true
-            if debugLoggingEnabled {
-                log.debug("Starting polling after 1s delay")
+                // Never overwrite the Ejecting…/Ejected! display mid-operation;
+                // performEject triggers a refresh once it finishes.
+                guard !Self.ejectOperationState.isInProgress else { return }
+                self.updateDisplay(showTitle: self.showTitle)
             }
-            self.startPolling(showTitle: self.showTitle)
         }
-        self.delayedPollingStart = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: workItem)
     }
 
     func willDisappear(device: String, payload: AppearEvent<Settings>) {
@@ -211,66 +195,8 @@ class EjectAction: KeyAction {
         if debugLoggingEnabled {
             log.debug("Action disappeared from device \(device)")
         }
-        delayedPollingStart?.cancel()
-        delayedPollingStart = nil
-        stopPolling()
-    }
-    
-    // MARK: - Disk Count Polling
-
-    private func startPolling(showTitle: Bool) {
-        self.showTitle = showTitle
-        if debugLoggingEnabled {
-            log.debug("startPolling: context=\(self.context), showTitle=\(showTitle)")
-        }
-
-        // Initial update - run immediately on main actor
         Task { @MainActor in
-            if debugLoggingEnabled {
-                log.debug("Performing initial disk count refresh for context=\(self.context)")
-            }
-            await self.refreshDiskCount()
-        }
-
-        // Poll every 3 seconds using DispatchSourceTimer
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + 3.0, repeating: 3.0)
-        timer.setEventHandler { [weak self] in
-            guard let self = self else { return }
-            Task { @MainActor in
-                await self.refreshDiskCount()
-            }
-        }
-        timer.resume()
-        pollingTimer = timer
-        if debugLoggingEnabled {
-            log.debug("Polling timer started for context=\(self.context)")
-        }
-    }
-
-    private func stopPolling() {
-        pollingTimer?.cancel()
-        pollingTimer = nil
-    }
-
-    private func refreshDiskCount() async {
-        if debugLoggingEnabled {
-            log.debug("refreshDiskCount called, needsInitialUpdate=\(self.needsInitialUpdate), current=\(self.diskCount)")
-        }
-
-        let count = await DiskSession.shared.ejectableVolumeCount()
-        if debugLoggingEnabled {
-            log.debug("DiskSession returned count: \(count)")
-        }
-
-        // Always update on first call (needsInitialUpdate) or when count changes
-        if needsInitialUpdate || count != self.diskCount {
-            self.diskCount = count
-            self.needsInitialUpdate = false
-            if debugLoggingEnabled {
-                log.debug("Updating display with disk count: \(count)")
-            }
-            updateDisplay(showTitle: self.showTitle)
+            DiskCountMonitor.shared.unsubscribe(context: self.context)
         }
     }
 
@@ -282,7 +208,9 @@ class EjectAction: KeyAction {
             log.debug("didReceiveSettings: context=\(self.context), showTitle=\(self.showTitle)")
         }
 
-        // Update display when settings change (e.g., from Property Inspector checkbox)
+        // Update display when settings change (e.g., from Property Inspector
+        // checkbox) — unless an eject is showing its own state right now.
+        guard !Self.ejectOperationState.isInProgress else { return }
         updateDisplay(showTitle: self.showTitle)
     }
 
@@ -322,6 +250,9 @@ class EjectAction: KeyAction {
         defer {
             Self.ejectOperationState.finish()
             log.info("Eject operation state cleared")
+            // Publishes the fresh count to every key instance, which restores
+            // the normal display now that the operation state is cleared.
+            DiskCountMonitor.shared.refresh()
         }
 
         log.info("Eject operation started")
@@ -330,8 +261,7 @@ class EjectAction: KeyAction {
         setImage(toImage: "ejecting", withExtension: "svg", subdirectory: "imgs/actions/eject")
         setTitle(to: showTitle ? "Ejecting..." : nil, target: nil, state: nil)
 
-        do {
-            let session = try DiskSession()
+        if let session = DiskSession.shared {
             let volumes = await session.enumerateEjectableVolumes()
             log.info("Enumerated ejectable volumes: count=\(volumes.count, privacy: .public)")
 
@@ -352,7 +282,7 @@ class EjectAction: KeyAction {
                     showOk()
                 } else {
                     // Show detailed error: "1 of 3 Failed" or specific error type
-                    let errorTitle = formatErrorTitle(result: result, showTitle: showTitle)
+                    let errorTitle = Self.formatErrorTitle(result: result, showTitle: showTitle)
                     setTitle(to: errorTitle, target: nil, state: nil)
                     showAlert()
 
@@ -360,24 +290,18 @@ class EjectAction: KeyAction {
                     logPermissionHint(result: result)
                 }
             }
-        } catch {
-            log.error("Failed to create DiskSession: \(error.localizedDescription)")
+        } else {
+            log.error("DiskArbitration session unavailable")
             setTitle(to: showTitle ? "Failed" : nil, target: nil, state: nil)
             showAlert()
         }
 
-        // Reset display after delay
+        // Hold the result state on the key briefly before returning to normal.
+        // Monitor updates are suppressed until the deferred finish() runs, so
+        // nothing can overwrite this display in the meantime.
         try? await Task.sleep(for: .seconds(2))
 
-        // Refresh disk count immediately before updating display
-        self.diskCount = await DiskSession.shared.ejectableVolumeCount()
-        log.info("Post-eject disk count refreshed: count=\(self.diskCount, privacy: .public)")
         setImage(toImage: "icon", withExtension: "svg", subdirectory: "imgs/actions/eject")
-
-        updateDisplay(showTitle: showTitle)
-        if debugLoggingEnabled {
-            log.debug("Display reset to normal state, disk count: \(self.diskCount)")
-        }
     }
 
     // MARK: - Display Updates
@@ -416,7 +340,7 @@ class EjectAction: KeyAction {
 
         for singleResult in result.results where !singleResult.success {
             let bsdName = singleResult.bsdName ?? "unknown"
-            let category = diagnosticCategory(for: singleResult.errorMessage)
+            let category = singleResult.errorCategory?.rawValue ?? "unknown"
             log.warning(
                 "Eject failure: bsd=\(bsdName, privacy: .public), category=\(category, privacy: .public), duration=\(singleResult.duration, privacy: .public)s"
             )
@@ -426,72 +350,31 @@ class EjectAction: KeyAction {
         }
     }
 
-    /// Converts detailed system errors into a sanitized diagnostic category.
-    private func diagnosticCategory(for message: String?) -> String {
-        guard let message else {
-            return "unknown"
-        }
-
-        let normalized = message.lowercased()
-
-        if normalized.contains("permission") || normalized.contains("permitted") {
-            return "permission"
-        }
-        if normalized.contains("privilege") {
-            return "privilege"
-        }
-        if normalized.contains("busy") || normalized.contains("exclusive") || normalized.contains("in use") {
-            return "busy"
-        }
-        if normalized.contains("timeout") || normalized.contains("timed out") {
-            return "timeout"
-        }
-        if normalized.contains("not mounted") {
-            return "not_mounted"
-        }
-        if normalized.contains("not found") {
-            return "not_found"
-        }
-        if normalized.contains("not ready") {
-            return "not_ready"
-        }
-        if normalized.contains("unsupported") {
-            return "unsupported"
-        }
-
-        return "other"
-    }
-
-    /// Formats a user-friendly error title based on the eject result
-    /// Shows specific information like "1 of 3 Failed" or error type hints
-    private func formatErrorTitle(result: BatchEjectResult, showTitle: Bool) -> String? {
+    /// Formats a user-friendly error title based on the eject result.
+    /// Shows specific information like "1 of 3 Failed" or error type hints.
+    /// Classification uses the typed `errorCategory`, never message strings.
+    static func formatErrorTitle(result: BatchEjectResult, showTitle: Bool) -> String? {
         guard showTitle else { return nil }
 
-        // Check if all failures are permission-related (suggests missing FDA)
-        let permissionErrors = result.results.filter { r in
-            guard let msg = r.errorMessage else { return false }
-            return msg.contains("ermission") || msg.contains("rivileged") || msg.contains("Not permitted")
-        }
+        let failures = result.results.filter { !$0.success }
 
-        // If ALL failures are permission errors, suggest granting FDA
-        if permissionErrors.count == result.failedCount && result.failedCount > 0 {
+        // If ALL failures are permission errors, suggest granting Full Disk Access
+        if !failures.isEmpty && failures.allSatisfy({ $0.errorCategory == .permission }) {
             return "Grant\nAccess"
         }
 
         // If all failed, show count
         if result.successCount == 0 {
             if result.totalCount == 1 {
-                // Single disk failed - try to show why
-                if let firstResult = result.results.first,
-                   let errorMsg = firstResult.errorMessage {
-                    // Extract short error hint
-                    if errorMsg.contains("busy") || errorMsg.contains("Busy") {
-                        return "In Use"
-                    } else if errorMsg.contains("timeout") || errorMsg.contains("Timeout") {
-                        return "Timeout"
-                    }
+                // Single disk failed - show why when we know
+                switch failures.first?.errorCategory {
+                case .busy:
+                    return "In Use"
+                case .timeout:
+                    return "Timeout"
+                default:
+                    return "Failed"
                 }
-                return "Failed"
             } else {
                 return "All Failed"
             }
@@ -504,13 +387,10 @@ class EjectAction: KeyAction {
     /// Logs a helpful message if failures appear to be permission-related
     /// Suggests granting Full Disk Access in System Settings
     private func logPermissionHint(result: BatchEjectResult) {
-        let permissionErrors = result.results.filter { r in
-            guard let msg = r.errorMessage else { return false }
-            return msg.contains("ermission") || msg.contains("rivileged") || msg.contains("Not permitted")
-        }
+        let permissionFailures = result.results.filter { !$0.success && $0.errorCategory == .permission }
 
-        if permissionErrors.count > 0 {
-            log.error("Permission denied for \(permissionErrors.count) disk(s). Grant Full Disk Access:")
+        if !permissionFailures.isEmpty {
+            log.error("Permission denied for \(permissionFailures.count) disk(s). Grant Full Disk Access:")
             log.error("  System Settings → Privacy & Security → Full Disk Access → Add Stream Deck")
         }
     }

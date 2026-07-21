@@ -92,7 +92,7 @@ func runBench() async -> Int32 {
 
       for _ in 0..<config.iterations {
         let start = Date()
-        _ = await DiskSession.shared.enumerateEjectableVolumes()
+        _ = await enumerateEjectableVolumes()
         timings.append(Date().timeIntervalSince(start))
       }
 
@@ -116,7 +116,7 @@ func runBench() async -> Int32 {
 
       for _ in 0..<config.iterations {
         let start = Date()
-        let result = await DiskSession.shared.ejectAllExternal(options: .default)
+        let result = await ejectAllExternalVolumes(options: .default)
         timings.append(Date().timeIntervalSince(start))
 
         print(

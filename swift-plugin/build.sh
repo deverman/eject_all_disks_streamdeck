@@ -65,15 +65,12 @@ if [ "$1" == "--install" ]; then
 
     INSTALL_DIR="$HOME/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin"
 
-    # Export plugin with generated manifest (this builds debug, but we'll overwrite)
-    swift run org.deverman.ejectalldisks export org.deverman.ejectalldisks \
+    # Export plugin with generated manifest. Running with -c release means the
+    # release binary (already built above) performs the export and is the one
+    # copied into the plugin bundle — no debug/release overwrite dance needed.
+    swift run -c release org.deverman.ejectalldisks export org.deverman.ejectalldisks \
         --generate-manifest \
         --copy-executable
-
-    # IMPORTANT: Copy the RELEASE binary over the debug binary that export created
-    # The export command builds debug, but we want the optimized release build
-    echo -e "${YELLOW}Copying release binary...${NC}"
-    cp ".build/release/org.deverman.ejectalldisks" "$INSTALL_DIR/org.deverman.ejectalldisks"
 
     # Copy assets (images, UI, and libs)
     cp -r "$PLUGIN_DIR/imgs" "$INSTALL_DIR/"

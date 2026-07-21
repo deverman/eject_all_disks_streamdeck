@@ -538,7 +538,7 @@ The manifest.json is **auto-generated** by `swift run ... export`, so you don't 
 1. **Bump version** in Swift file:
    ```swift
    // swift-plugin/Sources/YourPluginName/YourPluginName.swift
-   static var version: String = "3.1.0"  // MAJOR.MINOR.PATCH
+   static var version: String = "3.1.0.0"  // MAJOR.MINOR.PATCH.BUILD
    ```
 
 2. **Build and test**:
@@ -560,7 +560,7 @@ The manifest.json is **auto-generated** by `swift run ... export`, so you don't 
    - Go to: https://github.com/yourorg/yourplugin/releases/new?tag=v3.1.0
    - GitHub Actions will automatically build and attach the `.streamDeckPlugin` file
 
-**Version Format:** `MAJOR.MINOR.PATCH`
+**Version Format:** `MAJOR.MINOR.PATCH.BUILD` — the Stream Deck manifest schema requires exactly four numeric segments (`{major}.{minor}.{patch}.{build}`)
 - **MAJOR**: Breaking changes
 - **MINOR**: New features (backward compatible)
 - **PATCH**: Bug fixes

@@ -116,6 +116,88 @@ public enum DiskError: Error, Sendable, CustomStringConvertible {
   }
 }
 
+// MARK: - Error Categories
+
+/// Coarse, stable classification of disk errors.
+///
+/// Use this instead of matching substrings of `DiskError.description`:
+/// descriptions are human-facing wording that can change, while these
+/// categories are part of the API. Raw values are safe to include in logs.
+public enum DiskErrorCategory: String, Sendable, Codable, Hashable {
+  /// Not permitted or not privileged (typically missing Full Disk Access)
+  case permission
+
+  /// Volume is in use: open files or another process holds exclusive access
+  case busy
+
+  /// The operation exceeded its time budget
+  case timeout
+
+  /// Disk or volume not found, or the disk reference is invalid
+  case notFound
+
+  /// The volume is not currently mounted
+  case notMounted
+
+  /// The device is not ready
+  case notReady
+
+  /// The media is read-only
+  case notWritable
+
+  /// The operation is not supported for this disk type
+  case unsupported
+
+  /// Invalid argument passed to DiskArbitration
+  case badArgument
+
+  /// Insufficient system resources
+  case noResources
+
+  /// The DiskArbitration session could not be created or is invalid
+  case session
+
+  /// The operation was cancelled
+  case cancelled
+
+  /// General or unknown errors
+  case other
+}
+
+extension DiskError {
+  /// The coarse category for this error.
+  public var category: DiskErrorCategory {
+    switch self {
+    case .notPermitted, .notPrivileged:
+      return .permission
+    case .busy, .exclusiveAccess:
+      return .busy
+    case .timeout:
+      return .timeout
+    case .notFound, .invalidDiskReference:
+      return .notFound
+    case .notMounted:
+      return .notMounted
+    case .notReady:
+      return .notReady
+    case .notWritable:
+      return .notWritable
+    case .unsupported:
+      return .unsupported
+    case .badArgument:
+      return .badArgument
+    case .noResources:
+      return .noResources
+    case .sessionCreationFailed:
+      return .session
+    case .cancelled:
+      return .cancelled
+    case .success, .generalError, .unknown:
+      return .other
+    }
+  }
+}
+
 // MARK: - DAReturn to DiskError Conversion
 
 extension DiskError {

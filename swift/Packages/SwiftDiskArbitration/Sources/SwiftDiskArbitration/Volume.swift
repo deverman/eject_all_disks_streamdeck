@@ -43,7 +43,8 @@
 //    That's why we cache `wholeDisk` - it's the physical device to eject.
 //
 // 4. VOLUME ENUMERATION LOGIC (SECURITY)
-//    We scan /Volumes and use SYSTEM APIs to filter safely:
+//    We list mounted volumes via FileManager.mountedVolumeURLs and use
+//    SYSTEM APIs to filter safely:
 //    - Use .volumeIsRootFileSystemKey to detect boot volume (not name!)
 //    - Use .volumeIsBrowsableKey to detect system-only volumes
 //    - Use DiskArbitration properties as additional safety check
@@ -173,51 +174,47 @@ extension Volume {
   /// - Parameter session: The DiskArbitration session to use
   /// - Returns: Array of ejectable volumes with cached disk references
   public static func enumerateEjectableVolumes(session: DASession) -> [Volume] {
-    let fileManager = FileManager.default
-    let volumesPath = "/Volumes"
+    // Volume properties come from URL resource values — the authoritative
+    // source for volume characteristics.
+    let resourceKeys: Set<URLResourceKey> = [
+      .volumeIsRootFileSystemKey,    // Is this the boot volume?
+      .volumeIsEjectableKey,         // Can this be ejected?
+      .volumeIsRemovableKey,         // Is this removable media?
+      .volumeIsInternalKey,          // Is this an internal drive?
+      .volumeIsLocalKey,             // Is this a local (not network) volume?
+      .volumeIsBrowsableKey,         // Is this browsable by users?
+    ]
 
-    guard let contents = try? fileManager.contentsOfDirectory(atPath: volumesPath) else {
+    // mountedVolumeURLs is the canonical mount-point API: it pre-fetches the
+    // resource values in one pass, covers volumes mounted outside /Volumes,
+    // and .skipHiddenVolumes drops nobrowse mounts (Preboot, Recovery,
+    // com.apple.* service volumes, local Time Machine snapshots) without any
+    // name matching.
+    guard
+      let mountedURLs = FileManager.default.mountedVolumeURLs(
+        includingResourceValuesForKeys: Array(resourceKeys),
+        options: [.skipHiddenVolumes]
+      )
+    else {
       return []
     }
 
     var volumes: [Volume] = []
 
-    for name in contents {
-      // Skip hidden files (e.g., .timemachine, .Spotlight-V100)
-      guard !name.hasPrefix(".") else { continue }
+    for url in mountedURLs {
+      let name = url.lastPathComponent
+      let path = url.path
 
-      // Skip Apple system volumes by prefix (these are internal system things)
-      guard !name.hasPrefix("com.apple.") else { continue }
-
-      // Skip Time Machine local snapshots
+      // Conservative exclusion: a mounted Time Machine backup image
+      // ("Backups of <Mac>") is browsable, local, and a disk image, so the
+      // API-based checks below would include it. Ejecting it mid-backup could
+      // corrupt the backup, so skip it by its fixed system-assigned name.
       guard !name.hasPrefix("Backups of ") else { continue }
-
-      let path = "\(volumesPath)/\(name)"
-      let url = URL(fileURLWithPath: path)
-
-      // Verify it's a directory (mount point)
-      var isDirectory: ObjCBool = false
-      guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
-        isDirectory.boolValue
-      else {
-        continue
-      }
 
       // =====================================================================
       // SECURITY: Use system APIs to detect protected volumes
       // This is safer than matching volume names, which users can change.
       // =====================================================================
-
-      // Get volume properties from the filesystem using URL resource values
-      // These are the authoritative source for volume characteristics
-      let resourceKeys: Set<URLResourceKey> = [
-        .volumeIsRootFileSystemKey,    // Is this the boot volume?
-        .volumeIsEjectableKey,         // Can this be ejected?
-        .volumeIsRemovableKey,         // Is this removable media?
-        .volumeIsInternalKey,          // Is this an internal drive?
-        .volumeIsLocalKey,             // Is this a local (not network) volume?
-        .volumeIsBrowsableKey,         // Is this browsable by users?
-      ]
 
       guard let resourceValues = try? url.resourceValues(forKeys: resourceKeys) else {
         continue

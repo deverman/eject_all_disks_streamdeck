@@ -7,7 +7,7 @@
 //
 
 import Foundation
-import StreamDeck
+@preconcurrency import StreamDeck
 import SwiftDiskArbitration
 import OSLog
 
@@ -27,7 +27,9 @@ class EjectAllDisksPlugin: Plugin {
     static var categoryIcon: String? = "imgs/plugin/category-icon"
     static var author: String = "Brent Deverman"
     static var icon: String = "imgs/plugin/marketplace"
-    static var version: String = "3.0.3.0"
+    // NOTE: Stream Deck manifests require exactly four segments
+    // ({major}.{minor}.{patch}.{build}) — enforced by the Elgato schema.
+    static var version: String = "3.0.4.0"
     static var uuid: String = "org.deverman.ejectalldisks"
 
     static var os: [PluginOS] = [.macOS("13")]

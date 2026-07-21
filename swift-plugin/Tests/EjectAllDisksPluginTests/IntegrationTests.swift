@@ -22,10 +22,9 @@ struct DiskArbitrationIntegrationTests {
     }
 
     @Test("Shared session is available")
-    func sharedSession() {
-        let session = DiskSession.shared
-        // Shared session is available if we can access it
-        _ = session
+    func sharedSession() throws {
+        // shared is optional by design (no fatalError); it must exist here
+        _ = try #require(DiskSession.shared)
     }
 
     @Test("Multiple sessions can coexist")
@@ -42,29 +41,31 @@ struct DiskArbitrationIntegrationTests {
     // MARK: - Volume Enumeration
 
     @Test("Can get ejectable volume count")
-    func getVolumeCount() async {
-        let session = DiskSession.shared
+    func getVolumeCount() async throws {
+        let session = try #require(DiskSession.shared)
         let count = await session.ejectableVolumeCount()
 
         #expect(count >= 0)
     }
 
     @Test("Can enumerate ejectable volumes")
-    func enumerateVolumes() async {
-        let session = DiskSession.shared
+    func enumerateVolumes() async throws {
+        let session = try #require(DiskSession.shared)
         let volumes = await session.enumerateEjectableVolumes()
 
         #expect(volumes.count >= 0)
 
         for volume in volumes {
             #expect(!volume.info.name.isEmpty, "Volume name should not be empty")
-            #expect(volume.info.path.hasPrefix("/Volumes/"), "Volume path should start with /Volumes/")
+            // mountedVolumeURLs can surface ejectable volumes mounted outside
+            // /Volumes (rare custom mount points), so only require a rooted path
+            #expect(volume.info.path.hasPrefix("/"), "Volume path should be absolute")
         }
     }
 
     @Test("Volume count matches enumeration count")
-    func volumeCountMatchesEnumeration() async {
-        let session = DiskSession.shared
+    func volumeCountMatchesEnumeration() async throws {
+        let session = try #require(DiskSession.shared)
 
         let count = await session.ejectableVolumeCount()
         let volumes = await session.enumerateEjectableVolumes()
@@ -134,8 +135,8 @@ struct DiskArbitrationIntegrationTests {
 struct PerformanceTests {
 
     @Test("Volume count is fast", .timeLimit(.minutes(1)))
-    func volumeCountPerformance() async {
-        let session = DiskSession.shared
+    func volumeCountPerformance() async throws {
+        let session = try #require(DiskSession.shared)
 
         for _ in 0..<10 {
             _ = await session.ejectableVolumeCount()
@@ -143,8 +144,8 @@ struct PerformanceTests {
     }
 
     @Test("Full enumeration is reasonably fast", .timeLimit(.minutes(1)))
-    func enumerationPerformance() async {
-        let session = DiskSession.shared
+    func enumerationPerformance() async throws {
+        let session = try #require(DiskSession.shared)
 
         for _ in 0..<5 {
             _ = await session.enumerateEjectableVolumes()

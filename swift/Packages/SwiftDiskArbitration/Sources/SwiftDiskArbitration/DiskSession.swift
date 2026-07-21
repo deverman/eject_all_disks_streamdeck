@@ -71,6 +71,20 @@ public struct BatchEjectResult: Sendable {
 
   /// Total duration for all operations
   public let totalDuration: TimeInterval
+
+  public init(
+    totalCount: Int,
+    successCount: Int,
+    failedCount: Int,
+    results: [SingleEjectResult],
+    totalDuration: TimeInterval
+  ) {
+    self.totalCount = totalCount
+    self.successCount = successCount
+    self.failedCount = failedCount
+    self.results = results
+    self.totalDuration = totalDuration
+  }
 }
 
 /// Result of ejecting a single volume
@@ -90,8 +104,29 @@ public struct SingleEjectResult: Sendable, Codable {
   /// Error message if failed
   public let errorMessage: String?
 
+  /// Typed error category if failed. Prefer this over parsing `errorMessage`.
+  public let errorCategory: DiskErrorCategory?
+
   /// Duration of this specific ejection
   public let duration: TimeInterval
+
+  public init(
+    volumeName: String,
+    volumePath: String,
+    bsdName: String?,
+    success: Bool,
+    errorMessage: String?,
+    errorCategory: DiskErrorCategory? = nil,
+    duration: TimeInterval
+  ) {
+    self.volumeName = volumeName
+    self.volumePath = volumePath
+    self.bsdName = bsdName
+    self.success = success
+    self.errorMessage = errorMessage
+    self.errorCategory = errorCategory
+    self.duration = duration
+  }
 }
 
 /// Options for unmount/eject operations
@@ -339,6 +374,7 @@ public actor DiskSession {
           bsdName: volume.info.bsdName,
           success: false,
           errorMessage: "Session is invalid",
+          errorCategory: .session,
           duration: 0
         )
       }
@@ -395,7 +431,8 @@ public actor DiskSession {
   /// Ejects a physical device and all its volumes.
   ///
   /// This method unmounts all volumes on the device with kDADiskUnmountOptionWhole,
-  /// then ejects the physical device once.
+  /// then ejects the physical device once — via the shared
+  /// `unmountWholeDiskAndEject` helper, within a single overall time budget.
   ///
   /// - Parameters:
   ///   - deviceGroup: The physical device group to eject
@@ -405,38 +442,12 @@ public actor DiskSession {
     _ deviceGroup: PhysicalDeviceGroup,
     options: EjectOptions
   ) async -> [SingleEjectResult] {
-    let operationStart = Date()
-
     // If we're ejecting the physical device
     if options.ejectPhysicalDevice {
-      // Step 1: Unmount all volumes on the whole disk
-      var unmountOptions = kDADiskUnmountOptionWhole
-      if options.force {
-        unmountOptions |= kDADiskUnmountOptionForce
-      }
-
-      let unmountResult = await unmountDiskAsync(
+      let result = await unmountWholeDiskAndEject(
         deviceGroup.wholeDisk,
-        options: DADiskUnmountOptions(unmountOptions)
+        force: options.force
       )
-
-      // If unmount failed, return failure for all volumes in this group
-      guard unmountResult.success else {
-        return deviceGroup.volumes.map { volume in
-          SingleEjectResult(
-            volumeName: volume.info.name,
-            volumePath: volume.info.path,
-            bsdName: volume.info.bsdName,
-            success: false,
-            errorMessage: unmountResult.error?.description ?? "Unmount failed",
-            duration: unmountResult.duration
-          )
-        }
-      }
-
-      // Step 2: Eject the physical device
-      let ejectResult = await ejectDiskAsync(deviceGroup.wholeDisk)
-      let totalDuration = Date().timeIntervalSince(operationStart)
 
       // Return the same result for all volumes in this group
       return deviceGroup.volumes.map { volume in
@@ -444,9 +455,10 @@ public actor DiskSession {
           volumeName: volume.info.name,
           volumePath: volume.info.path,
           bsdName: volume.info.bsdName,
-          success: ejectResult.success,
-          errorMessage: ejectResult.error?.description,
-          duration: totalDuration
+          success: result.success,
+          errorMessage: result.error?.description,
+          errorCategory: result.error?.category,
+          duration: result.duration
         )
       }
     } else {
@@ -462,6 +474,7 @@ public actor DiskSession {
             bsdName: volume.info.bsdName,
             success: result.success,
             errorMessage: result.error?.description,
+            errorCategory: result.error?.category,
             duration: result.duration
           )
         )
@@ -493,13 +506,14 @@ public actor DiskSession {
 // MARK: - Shared Session
 
 extension DiskSession {
-  /// Shared session for convenience.
-  /// Use a dedicated session for long-running applications that need precise lifecycle control.
-  public static let shared: DiskSession = {
-    do {
-      return try DiskSession()
-    } catch {
-      fatalError("Failed to create shared DiskSession: \(error)")
-    }
-  }()
+  /// Shared session for convenience, or nil if the DiskArbitration session
+  /// could not be created.
+  ///
+  /// Deliberately optional rather than trapping: a failure to create the
+  /// session should degrade gracefully (e.g., a Stream Deck key showing an
+  /// error state), not crash the host process.
+  ///
+  /// Use a dedicated session for long-running applications that need precise
+  /// lifecycle control.
+  public static let shared: DiskSession? = try? DiskSession()
 }

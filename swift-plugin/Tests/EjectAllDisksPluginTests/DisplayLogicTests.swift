@@ -174,3 +174,86 @@ struct StateTransitionTests {
         #expect(Set(nonNilStates).count == 5, "All state titles should be unique")
     }
 }
+
+// MARK: - Error Title Formatting (typed categories)
+
+import SwiftDiskArbitration
+
+/// Builds a BatchEjectResult from per-volume (success, category) pairs.
+private func makeBatchResult(_ outcomes: [(success: Bool, category: DiskErrorCategory?)]) -> BatchEjectResult {
+    let results = outcomes.enumerated().map { index, outcome in
+        SingleEjectResult(
+            volumeName: "Volume\(index)",
+            volumePath: "/Volumes/Volume\(index)",
+            bsdName: "disk\(index + 2)s1",
+            success: outcome.success,
+            errorMessage: outcome.success ? nil : "error",
+            errorCategory: outcome.category,
+            duration: 0.1
+        )
+    }
+    let successCount = results.filter(\.success).count
+    return BatchEjectResult(
+        totalCount: results.count,
+        successCount: successCount,
+        failedCount: results.count - successCount,
+        results: results,
+        totalDuration: 0.5
+    )
+}
+
+@Suite("Error Title Formatting Tests")
+struct ErrorTitleFormattingTests {
+
+    @Test("All permission failures suggest granting access")
+    func allPermissionFailures() {
+        let result = makeBatchResult([
+            (false, .permission),
+            (false, .permission),
+        ])
+        #expect(EjectAction.formatErrorTitle(result: result, showTitle: true) == "Grant\nAccess")
+    }
+
+    @Test("Mixed failure categories do not suggest granting access")
+    func mixedFailures() {
+        let result = makeBatchResult([
+            (false, .permission),
+            (false, .busy),
+        ])
+        #expect(EjectAction.formatErrorTitle(result: result, showTitle: true) == "All Failed")
+    }
+
+    @Test("Single busy failure shows In Use")
+    func singleBusyFailure() {
+        let result = makeBatchResult([(false, .busy)])
+        #expect(EjectAction.formatErrorTitle(result: result, showTitle: true) == "In Use")
+    }
+
+    @Test("Single timeout failure shows Timeout")
+    func singleTimeoutFailure() {
+        let result = makeBatchResult([(false, .timeout)])
+        #expect(EjectAction.formatErrorTitle(result: result, showTitle: true) == "Timeout")
+    }
+
+    @Test("Single unclassified failure shows Failed")
+    func singleUnknownFailure() {
+        let result = makeBatchResult([(false, nil)])
+        #expect(EjectAction.formatErrorTitle(result: result, showTitle: true) == "Failed")
+    }
+
+    @Test("Partial failure shows X of Y")
+    func partialFailure() {
+        let result = makeBatchResult([
+            (true, nil),
+            (true, nil),
+            (false, .busy),
+        ])
+        #expect(EjectAction.formatErrorTitle(result: result, showTitle: true) == "1 of 3\nFailed")
+    }
+
+    @Test("Hidden title returns nil even on failure")
+    func hiddenTitle() {
+        let result = makeBatchResult([(false, .permission)])
+        #expect(EjectAction.formatErrorTitle(result: result, showTitle: false) == nil)
+    }
+}
