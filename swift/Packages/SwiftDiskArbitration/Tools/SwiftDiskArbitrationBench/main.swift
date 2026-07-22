@@ -72,7 +72,23 @@ func parseArgs() -> ParseOutcome {
 }
 
 func formatSeconds(_ t: TimeInterval) -> String {
-  String(format: "%.4f", t)
+  t.formatted(
+    .number
+      .precision(.fractionLength(4))
+      .locale(Locale(identifier: "en_US_POSIX"))
+  )
+}
+
+func printError(_ message: String) {
+  FileHandle.standardError.write(Data("\(message)\n".utf8))
+}
+
+func seconds(_ duration: Duration) -> TimeInterval {
+  let parts = duration.components
+  return max(
+    0,
+    Double(parts.seconds) + Double(parts.attoseconds) / 1_000_000_000_000_000_000
+  )
 }
 
 func runBench() async -> Int32 {
@@ -91,9 +107,10 @@ func runBench() async -> Int32 {
       timings.reserveCapacity(config.iterations)
 
       for _ in 0..<config.iterations {
-        let start = Date()
+        let clock = ContinuousClock()
+        let start = clock.now
         _ = await enumerateEjectableVolumes()
-        timings.append(Date().timeIntervalSince(start))
+        timings.append(seconds(start.duration(to: clock.now)))
       }
 
       let total = timings.reduce(0, +)
@@ -107,7 +124,7 @@ func runBench() async -> Int32 {
 
     case .eject:
       guard config.confirmEject == "YES" else {
-        fputs("ERROR: eject mode requires --confirm-eject YES\n", stderr)
+        printError("ERROR: eject mode requires --confirm-eject YES")
         return 2
       }
 
@@ -115,9 +132,10 @@ func runBench() async -> Int32 {
       timings.reserveCapacity(config.iterations)
 
       for _ in 0..<config.iterations {
-        let start = Date()
+        let clock = ContinuousClock()
+        let start = clock.now
         let result = await ejectAllExternalVolumes(options: .default)
-        timings.append(Date().timeIntervalSince(start))
+        timings.append(seconds(start.duration(to: clock.now)))
 
         print(
           "eject_result success=\(result.successCount) failed=\(result.failedCount) total=\(result.totalCount) totalDuration_s=\(formatSeconds(result.totalDuration))"

@@ -34,7 +34,7 @@ struct PluginMetadataTests {
     @Test("Plugin has valid version")
     func pluginVersion() {
         let version = EjectAllDisksPlugin.version
-        #expect(!version.isEmpty)
+        #expect(version == "4.0.0.0")
 
         let components = version.split(separator: ".")
         #expect(components.count == 4, "Stream Deck CLI expects major.minor.patch.build")
@@ -57,9 +57,11 @@ struct PluginMetadataTests {
     }
 
     @Test("Plugin has macOS version requirement")
-    func pluginMinMacOS() {
+    func pluginMinMacOS() throws {
         let macOS = EjectAllDisksPlugin.os.first { $0.platform == .mac }
-        #expect(macOS != nil, "Plugin should have macOS support")
+        let supportedOS = try #require(macOS, "Plugin should have macOS support")
+        let encoded = try JSONEncoder().encode(supportedOS.minimumVersion)
+        #expect(String(decoding: encoded, as: UTF8.self) == "\"26\"")
     }
 }
 

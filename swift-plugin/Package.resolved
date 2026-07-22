@@ -1,11 +1,11 @@
 {
+  "originHash" : "f7b29afd796c864b7000e6072ba5ad23e68cc8c8f4bb9b85542b6577a998d567",
   "pins" : [
     {
       "identity" : "streamdeckplugin",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/deverman/StreamDeckPlugin.git",
       "state" : {
-        "branch" : "main",
         "revision" : "4ab9413d360a8a8657172914c4f98ba3f86743f3"
       }
     },
@@ -28,5 +28,5 @@
       }
     }
   ],
-  "version" : 2
+  "version" : 3
 }

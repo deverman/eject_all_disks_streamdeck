@@ -29,8 +29,9 @@
 //
 //    This is safe because:
 //    - VolumeInfo is immutable (can't change after creation)
-//    - DADisk is read-only after we create it
-//    - We only use it for eject operations (which are thread-safe)
+//    - Both DADisk references are immutable after initialization
+//    - They are opaque CoreFoundation operation handles, never mutable storage
+//    - DiskArbitration delivers their callbacks on the session's configured queue
 //
 // 3. WHOLE DISK vs VOLUME
 //    A physical USB drive might have multiple partitions:
@@ -106,8 +107,9 @@ public struct VolumeInfo: Sendable, Codable, Hashable {
 ///
 /// Thread Safety: This type is marked @unchecked Sendable because:
 /// - VolumeInfo is immutable and Sendable
-/// - DADisk (CFType) is thread-safe for read operations after creation
-/// - The disk reference is only used for unmount/eject operations which are thread-safe
+/// - Both DADisk references are immutable after initialization
+/// - They are passed only to documented DiskArbitration inspection/operation APIs
+/// - The owning DASession controls callback delivery on its configured queue
 public final class Volume: @unchecked Sendable {
   /// Information about this volume
   public let info: VolumeInfo
@@ -117,8 +119,8 @@ public final class Volume: @unchecked Sendable {
   internal let disk: DADisk
 
   /// The whole-disk reference (for multi-partition devices)
-  /// Cached lazily when needed for ejection
-  internal private(set) var wholeDisk: DADisk?
+  /// Resolved once during initialization and immutable thereafter
+  internal let wholeDisk: DADisk?
 
   /// URL for the volume mount point
   public var url: URL {
@@ -136,21 +138,12 @@ public final class Volume: @unchecked Sendable {
     self.wholeDisk = DADiskCopyWholeDisk(disk)
   }
 
-  deinit {
-    // DADisk is a CFType, Swift handles release via ARC
-    // wholeDisk is also managed by ARC
-  }
-
   /// Returns the BSD name of the whole disk (physical device).
   /// For example, if this volume is "disk2s1", returns "disk2"
   /// Returns nil if the whole disk reference is not available
   internal var wholeDiskBSDName: String? {
-    guard let wholeDisk = wholeDisk,
-      let bsdName = DADiskGetBSDName(wholeDisk)
-    else {
-      return nil
-    }
-    return String(cString: bsdName)
+    guard let wholeDisk else { return nil }
+    return DiskArbitrationUnsafeAdapter.bsdName(of: wholeDisk)
   }
 }
 
@@ -276,10 +269,7 @@ extension Volume {
       }
 
       // Get BSD name from the disk
-      var bsdName: String? = nil
-      if let bsdNameCStr = DADiskGetBSDName(disk) {
-        bsdName = String(cString: bsdNameCStr)
-      }
+      let bsdName = DiskArbitrationUnsafeAdapter.bsdName(of: disk)
 
       // Check if it's a disk image
       let isDiskImage = checkIfDiskImage(disk: disk)

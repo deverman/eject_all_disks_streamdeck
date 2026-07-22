@@ -7,8 +7,8 @@
 //
 
 import Foundation
-@preconcurrency import StreamDeck
-import SwiftDiskArbitration
+// The reviewed StreamDeck dependency predates complete Sendable annotations.
+@unsafe @preconcurrency import StreamDeck
 import OSLog
 
 /// Logger for plugin events
@@ -21,19 +21,19 @@ class EjectAllDisksPlugin: Plugin {
 
     // MARK: - Plugin Metadata
 
-    static var name: String = "SafeEject: One-Push Disk Manager"
-    static var description: String = "One-push safe ejection for all your external drives. Essential utility for macOS."
-    static var category: String? = "Drive Manager"
-    static var categoryIcon: String? = "imgs/plugin/category-icon"
-    static var author: String = "Brent Deverman"
-    static var icon: String = "imgs/plugin/marketplace"
+    static let name: String = "SafeEject: One-Push Disk Manager"
+    static let description: String = "One-push safe ejection for all your external drives. Essential utility for macOS."
+    static let category: String? = "SafeEject: One-Push Disk Manager"
+    static let categoryIcon: String? = "imgs/plugin/category-icon"
+    static let author: String = "Brent Deverman"
+    static let icon: String = "imgs/plugin/marketplace"
     // NOTE: Stream Deck manifests require exactly four segments
     // ({major}.{minor}.{patch}.{build}) — enforced by the Elgato schema.
-    static var version: String = "3.0.4.0"
-    static var uuid: String = "org.deverman.ejectalldisks"
+    static let version: String = "4.0.0.0"
+    static let uuid: String = "org.deverman.ejectalldisks"
 
-    static var os: [PluginOS] = [.macOS("13")]
-    static var software: PluginSoftware = .minimumVersion("6.9")
+    static let os: [PluginOS] = [.macOS("26")]
+    static let software: PluginSoftware = .minimumVersion("6.9")
 
     // MARK: - Actions
 
@@ -55,4 +55,8 @@ class EjectAllDisksPlugin: Plugin {
             log.debug("EjectAllDisksPlugin initialized")
         }
     }
+
+    // Wake handling lives in DiskCountMonitor's NSWorkspace.didWakeNotification
+    // observer — the same OS-delivered channel as mount/unmount events — so the
+    // Stream Deck transport's systemDidWakeUp is intentionally not observed here.
 }

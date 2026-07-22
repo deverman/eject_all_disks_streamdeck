@@ -1,4 +1,4 @@
-name: Build and Package Plugin
+name: SafeEject correctness and package
 
 on:
   push:
@@ -8,152 +8,121 @@ on:
   release:
     types: [created]
 
+env:
+  SWIFT_VERSION: "6.3.3"
+
 jobs:
-  build:
-    runs-on: macos-14
+  library:
+    name: Library strict build and tests
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: ${{ env.SWIFT_VERSION }}
+      - name: Verify exact toolchain
+        run: swift --version | grep -F "Swift version 6.3.3"
+      - name: Strict library audit
+        working-directory: swift/Packages/SwiftDiskArbitration
+        run: >-
+          swift test
+          -Xswiftc -strict-concurrency=complete
+          -Xswiftc -strict-memory-safety
+          -Xswiftc -require-explicit-sendable
+          -Xswiftc -warnings-as-errors
+
+  plugin:
+    name: Plugin tests and release build
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: ${{ env.SWIFT_VERSION }}
+      - name: Verify exact toolchain
+        run: swift --version | grep -F "Swift version 6.3.3"
+      - name: Plugin strict tests
+        working-directory: swift-plugin
+        # Strict concurrency, strict memory safety, and warnings-as-errors are
+        # target-scoped in Package.swift so they are not forced into StreamDeck.
+        run: swift test
+      - name: Release build
+        working-directory: swift-plugin
+        run: swift build -c release
+
+  address-sanitizer:
+    name: Library Address Sanitizer
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: ${{ env.SWIFT_VERSION }}
+      - name: Address Sanitizer tests
+        working-directory: swift/Packages/SwiftDiskArbitration
+        run: swift test --sanitize=address
+
+  thread-sanitizer:
+    name: Library and plugin Thread Sanitizer
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: ${{ env.SWIFT_VERSION }}
+      - name: Library Thread Sanitizer tests
+        working-directory: swift/Packages/SwiftDiskArbitration
+        run: swift test --sanitize=thread
+      - name: Plugin Thread Sanitizer tests
+        working-directory: swift-plugin
+        run: swift test --sanitize=thread
+
+  package:
+    name: Export, validate, and package
+    needs: [library, plugin, address-sanitizer, thread-sanitizer]
+    runs-on: macos-26
     permissions:
       contents: write
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Swift
-        uses: swift-actions/setup-swift@v2
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v2
         with:
-          swift-version: "6.2.1"
-
-      - name: Swift version (for cache key)
-        id: swift-version
-        shell: bash
-        run: |
-          set -euo pipefail
-          swift --version
-          # Create a stable, safe cache key component from the toolchain version line.
-          # Example: "Apple Swift version 6.2.1 (swiftlang-... clang-...)"
-          SWIFT_VERSION_LINE="$(swift --version | head -n 1)"
-          SWIFT_VERSION_KEY="$(echo "$SWIFT_VERSION_LINE" | tr ' ' '-' | tr -cd '[:alnum:]-._')"
-          echo "SWIFT_VERSION_KEY=$SWIFT_VERSION_KEY" >> "$GITHUB_ENV"
-          echo "swift_version_key=$SWIFT_VERSION_KEY" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Swift packages
-        uses: actions/cache@v4
-        with:
-          path: swift-plugin/.build
-          key: ${{ runner.os }}-${{ env.SWIFT_VERSION_KEY }}-swift-${{ hashFiles('swift-plugin/Package.resolved') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ env.SWIFT_VERSION_KEY }}-swift-
-            ${{ runner.os }}-swift-
-
-      - name: Build Swift plugin
+          swift-version: ${{ env.SWIFT_VERSION }}
+      - name: Install official Stream Deck CLI
+        run: npm install -g @elgato/cli
+      - name: Export release plugin
         working-directory: swift-plugin
         run: |
-          echo "Building release binary..."
           swift build -c release
-          echo "✅ Build succeeded"
-
-      - name: Run tests
-        working-directory: swift-plugin
-        run: |
-          echo "Running tests..."
-          swift test
-          echo "✅ Tests passed"
-
-      - name: Export plugin
-        working-directory: swift-plugin
-        run: |
-          echo "Exporting plugin..."
           swift run -c release org.deverman.ejectalldisks export org.deverman.ejectalldisks \
             --generate-manifest \
             --copy-executable
-          
-          # Ensure the installed plugin uses the optimized release binary (swift run defaults to debug without -c).
-          INSTALL_DIR="$HOME/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin"
-          cp ".build/release/org.deverman.ejectalldisks" "$INSTALL_DIR/org.deverman.ejectalldisks"
-          echo "✅ Plugin exported"
-
-      - name: Copy assets to export
-        run: |
-          INSTALL_DIR="$HOME/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin"
-          echo "Copying assets to: $INSTALL_DIR"
-          cp -r org.deverman.ejectalldisks.sdPlugin/imgs "$INSTALL_DIR/"
-          cp -r org.deverman.ejectalldisks.sdPlugin/ui "$INSTALL_DIR/"
-          cp -r org.deverman.ejectalldisks.sdPlugin/libs "$INSTALL_DIR/"
-          echo "✅ Assets copied"
-
-      - name: Verify build output
+      - name: Stage assets and assert release metadata
         run: |
           PLUGIN_DIR="$HOME/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin"
-          echo "Checking required files..."
-
-          if [ ! -f "$PLUGIN_DIR/org.deverman.ejectalldisks" ]; then
-            echo "Error: Binary not found"
-            exit 1
-          fi
-
-          if [ ! -f "$PLUGIN_DIR/manifest.json" ]; then
-            echo "Error: manifest.json not found"
-            exit 1
-          fi
-
-          if [ ! -d "$PLUGIN_DIR/imgs" ]; then
-            echo "Error: imgs directory not found"
-            exit 1
-          fi
-
-          echo "✅ All required files present"
-          echo ""
-          echo "Plugin contents:"
-          ls -lh "$PLUGIN_DIR/"
-          echo ""
-          echo "Binary info:"
-          file "$PLUGIN_DIR/org.deverman.ejectalldisks"
-
-      - name: Install StreamDeck CLI
-        run: npm install -g @elgato/cli
-
-      - name: Validate plugin
-        run: |
-          PLUGIN_DIR="$HOME/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin"
-          streamdeck validate --no-update-check "$PLUGIN_DIR"
-
-      - name: Package plugin
+          cp -R org.deverman.ejectalldisks.sdPlugin/imgs "$PLUGIN_DIR/"
+          cp -R org.deverman.ejectalldisks.sdPlugin/ui "$PLUGIN_DIR/"
+          cp -R org.deverman.ejectalldisks.sdPlugin/libs "$PLUGIN_DIR/"
+          test "$(jq -r '.Version' "$PLUGIN_DIR/manifest.json")" = "4.0.0.0"
+          test "$(jq -r '.OS[0].MinimumVersion' "$PLUGIN_DIR/manifest.json")" = "26"
+      - name: Official validation and package
         run: |
           PLUGIN_DIR="$HOME/Library/Application Support/com.elgato.StreamDeck/Plugins/org.deverman.ejectalldisks.sdPlugin"
           mkdir -p dist
-
-          # Use streamdeck pack for proper packaging
+          streamdeck validate --no-update-check "$PLUGIN_DIR"
           streamdeck pack "$PLUGIN_DIR" --output dist
-
-          # Rename to expected filename if needed
           if [ -f "dist/org.deverman.ejectalldisks.sdPlugin.streamDeckPlugin" ]; then
             mv "dist/org.deverman.ejectalldisks.sdPlugin.streamDeckPlugin" \
-               "dist/org.deverman.ejectalldisks.streamDeckPlugin"
+              "dist/org.deverman.ejectalldisks.streamDeckPlugin"
           fi
-
-          echo "✅ Package created"
-
-      - name: Verify package
-        run: |
-          if [ ! -f "dist/org.deverman.ejectalldisks.streamDeckPlugin" ]; then
-            echo "Error: Package file not found"
-            ls -la dist/
-            exit 1
-          fi
-          ls -lh dist/org.deverman.ejectalldisks.streamDeckPlugin
-          echo "✅ Package verified"
-
-      - name: Upload plugin artifact
-        uses: actions/upload-artifact@v4
+          test -f dist/org.deverman.ejectalldisks.streamDeckPlugin
+      - uses: actions/upload-artifact@v4
         with:
-          name: streamdeck-plugin
+          name: SafeEject-4.0.0
           path: dist/org.deverman.ejectalldisks.streamDeckPlugin
           retention-days: 30
-
-      - name: Upload to release
+      - name: Attach package to an explicitly created release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
           files: dist/org.deverman.ejectalldisks.streamDeckPlugin
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

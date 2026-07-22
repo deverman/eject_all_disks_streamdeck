@@ -128,24 +128,26 @@ struct DiskErrorCategoryTests {
   }
 }
 
-@Suite("Callback Context Tests")
-struct DiskCallbackContextTests {
+@Suite("Disk Operation Registry Smoke Tests")
+struct DiskOperationRegistrySmokeTests {
 
   @Test("Continuation resumes exactly once when raced")
   func resumeOnce() async {
+    let registry = DiskOperationRegistry()
     let result: DiskOperationResult = await withCheckedContinuation { continuation in
-      let context = DiskCallbackContext(continuation: continuation)
-      let first = context.resume(
-        with: DiskOperationResult(success: true, error: nil, duration: 0.1)
+      let token = registry.register(
+        continuation: continuation,
+        stage: .unmount,
+        elapsed: { 0.1 }
       )
-      let second = context.resume(
-        with: DiskOperationResult(success: false, error: .timeout, duration: 0.2)
-      )
+      let first = registry.completeFromCallback(token: token, error: nil, rawStatus: nil)
+      let second = registry.completeAsTimeout(token: token)
       #expect(first, "First resume should win")
       #expect(!second, "Second resume should be dropped")
     }
 
     #expect(result.success, "The first (winning) result should be delivered")
     #expect(result.error == nil)
+    #expect(registry.pendingCount == 0)
   }
 }

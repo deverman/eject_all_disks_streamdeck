@@ -29,11 +29,9 @@
 //    - DASessionSetDispatchQueue() tells it where to deliver callbacks
 //    - In deinit, we set the queue to nil to stop callbacks before cleanup
 //
-// 2. nonisolated(unsafe)
-//    The `daSession` property is marked `nonisolated(unsafe)` because:
-//    - We need to access it in `deinit` (which runs outside actor isolation)
-//    - DASession is thread-safe, so this is actually safe
-//    - Swift 6 requires us to be explicit about this
+// 2. ISOLATED CLEANUP
+//    Swift 6.2+ supports an `isolated deinit` for actors. The session remains
+//    actor-isolated through cleanup, so it needs no `nonisolated(unsafe)` escape.
 //
 // 3. PHYSICAL DEVICE GROUPING (Performance Optimization)
 //    A USB drive with 2 partitions appears as 2 volumes, but it's 1 device.
@@ -107,6 +105,12 @@ public struct SingleEjectResult: Sendable, Codable {
   /// Typed error category if failed. Prefer this over parsing `errorMessage`.
   public let errorCategory: DiskErrorCategory?
 
+  /// Disk operation stage that produced the failure, when available.
+  public let errorStage: DiskOperationStage?
+
+  /// Raw DiskArbitration status retained for future diagnostics.
+  public let rawStatus: DAReturn?
+
   /// Duration of this specific ejection
   public let duration: TimeInterval
 
@@ -117,6 +121,8 @@ public struct SingleEjectResult: Sendable, Codable {
     success: Bool,
     errorMessage: String?,
     errorCategory: DiskErrorCategory? = nil,
+    errorStage: DiskOperationStage? = nil,
+    rawStatus: DAReturn? = nil,
     duration: TimeInterval
   ) {
     self.volumeName = volumeName
@@ -125,6 +131,8 @@ public struct SingleEjectResult: Sendable, Codable {
     self.success = success
     self.errorMessage = errorMessage
     self.errorCategory = errorCategory
+    self.errorStage = errorStage
+    self.rawStatus = rawStatus
     self.duration = duration
   }
 }
@@ -167,10 +175,7 @@ public struct EjectOptions: Sendable {
 /// - Callbacks are bridged to async/await using continuations
 public actor DiskSession {
   /// The underlying DiskArbitration session
-  /// Marked nonisolated(unsafe) to allow cleanup in deinit.
-  /// This is safe because DASession is thread-safe and we only access it
-  /// for cleanup when no other operations can be in flight.
-  private nonisolated(unsafe) let daSession: DASession
+  private let daSession: DASession
 
   /// Dispatch queue for DiskArbitration callbacks
   private let callbackQueue: DispatchQueue
@@ -196,7 +201,7 @@ public actor DiskSession {
     DASessionSetDispatchQueue(session, callbackQueue)
   }
 
-  deinit {
+  isolated deinit {
     // Unschedule the session from the dispatch queue
     // This prevents callbacks from firing after deallocation
     DASessionSetDispatchQueue(daSession, nil)
@@ -270,7 +275,7 @@ public actor DiskSession {
     let info = VolumeInfo(
       name: url.lastPathComponent,
       path: path,
-      bsdName: DADiskGetBSDName(disk).map { String(cString: $0) }
+      bsdName: DiskArbitrationUnsafeAdapter.bsdName(of: disk)
     )
     let volume = Volume(info: info, disk: disk)
 
@@ -279,11 +284,17 @@ public actor DiskSession {
 
   // MARK: - Batch Operations
 
-  /// Represents a physical device and all its volumes
-  /// Marked @unchecked Sendable because DADisk is thread-safe for our use case
+  /// Represents a physical device and all its volumes.
+  ///
+  /// Safety invariant for `@unchecked Sendable`: `DADisk` is an immutable
+  /// CoreFoundation reference used only as an identity/operation handle. Its
+  /// DASession is scheduled once on `callbackQueue`; child tasks submit documented
+  /// DiskArbitration operations and never mutate the handle's storage.
   private struct PhysicalDeviceGroup: @unchecked Sendable {
     /// BSD name of the whole disk (e.g., "disk2")
     let wholeDiskBSDName: String
+
+    let deviceID: PhysicalDeviceID
 
     /// All volumes on this physical device
     let volumes: [Volume]
@@ -309,11 +320,23 @@ public actor DiskSession {
         // If we can't get the whole disk, create a single-volume group
         // using the volume's own BSD name as a fallback
         let fallbackKey = volume.info.bsdName ?? UUID().uuidString
-        groups[fallbackKey] = PhysicalDeviceGroup(
-          wholeDiskBSDName: fallbackKey,
-          volumes: [volume],
-          wholeDisk: volume.disk
-        )
+        if let existingGroup = groups[fallbackKey] {
+          var updatedVolumes = existingGroup.volumes
+          updatedVolumes.append(volume)
+          groups[fallbackKey] = PhysicalDeviceGroup(
+            wholeDiskBSDName: fallbackKey,
+            deviceID: existingGroup.deviceID,
+            volumes: updatedVolumes,
+            wholeDisk: existingGroup.wholeDisk
+          )
+        } else {
+          groups[fallbackKey] = PhysicalDeviceGroup(
+            wholeDiskBSDName: fallbackKey,
+            deviceID: PhysicalDeviceID(bsdName: fallbackKey),
+            volumes: [volume],
+            wholeDisk: volume.disk
+          )
+        }
         continue
       }
 
@@ -323,12 +346,14 @@ public actor DiskSession {
         updatedVolumes.append(volume)
         groups[wholeDiskBSDName] = PhysicalDeviceGroup(
           wholeDiskBSDName: wholeDiskBSDName,
+          deviceID: PhysicalDeviceID(bsdName: wholeDiskBSDName),
           volumes: updatedVolumes,
           wholeDisk: wholeDisk
         )
       } else {
         groups[wholeDiskBSDName] = PhysicalDeviceGroup(
           wholeDiskBSDName: wholeDiskBSDName,
+          deviceID: PhysicalDeviceID(bsdName: wholeDiskBSDName),
           volumes: [volume],
           wholeDisk: wholeDisk
         )
@@ -354,7 +379,18 @@ public actor DiskSession {
   public func ejectAll(_ volumes: [Volume], options: EjectOptions = .default) async
     -> BatchEjectResult
   {
-    let startTime = Date()
+    await ejectAll(volumes, options: options, onProgress: { _ in })
+  }
+
+  /// Ejects all provided volumes while publishing physical-device progress as
+  /// soon as each independent device changes stage or completes.
+  public func ejectAll(
+    _ volumes: [Volume],
+    options: EjectOptions = .default,
+    onProgress: @escaping @Sendable (DeviceEjectEvent) async -> Void
+  ) async -> BatchEjectResult {
+    let clock = ContinuousClock()
+    let startedAt = clock.now
 
     guard !volumes.isEmpty else {
       return BatchEjectResult(
@@ -365,6 +401,10 @@ public actor DiskSession {
         totalDuration: 0
       )
     }
+
+    // Group before the validity check so even a session failure can preserve
+    // per-physical-device progress and diagnostic identity.
+    let deviceGroups = groupVolumesByPhysicalDevice(volumes)
 
     guard isValid else {
       let results = volumes.map { volume in
@@ -378,6 +418,18 @@ public actor DiskSession {
           duration: 0
         )
       }
+      for deviceGroup in deviceGroups {
+        let failure = DeviceEjectFailure(
+          deviceID: deviceGroup.deviceID,
+          stage: .unmount,
+          category: .session,
+          rawStatus: nil
+        )
+        await onProgress(.completed(
+          deviceGroup.deviceID,
+          .failed(failure, duration: 0)
+        ))
+      }
       return BatchEjectResult(
         totalCount: volumes.count,
         successCount: 0,
@@ -386,9 +438,6 @@ public actor DiskSession {
         totalDuration: 0
       )
     }
-
-    // Group volumes by their physical device
-    let deviceGroups = groupVolumesByPhysicalDevice(volumes)
 
     // PRIVACY: We don't log volume names as they may contain sensitive information.
     // Only log counts, not names like "ConfidentialProject" or "ClientBackup".
@@ -402,7 +451,8 @@ public actor DiskSession {
           // Eject this entire physical device (all volumes on it)
           let deviceResult = await self.ejectPhysicalDevice(
             deviceGroup,
-            options: options
+            options: options,
+            onProgress: onProgress
           )
           return deviceResult
         }
@@ -416,7 +466,7 @@ public actor DiskSession {
       return collected
     }
 
-    let totalDuration = Date().timeIntervalSince(startTime)
+    let totalDuration = startedAt.duration(to: clock.now).diskOperationTimeInterval
     let successCount = results.filter(\.success).count
 
     return BatchEjectResult(
@@ -440,13 +490,16 @@ public actor DiskSession {
   /// - Returns: Array of results for each volume in the group
   private func ejectPhysicalDevice(
     _ deviceGroup: PhysicalDeviceGroup,
-    options: EjectOptions
+    options: EjectOptions,
+    onProgress: @escaping @Sendable (DeviceEjectEvent) async -> Void
   ) async -> [SingleEjectResult] {
     // If we're ejecting the physical device
     if options.ejectPhysicalDevice {
       let result = await unmountWholeDiskAndEject(
         deviceGroup.wholeDisk,
-        force: options.force
+        force: options.force,
+        deviceID: deviceGroup.deviceID,
+        onProgress: onProgress
       )
 
       // Return the same result for all volumes in this group
@@ -458,6 +511,8 @@ public actor DiskSession {
           success: result.success,
           errorMessage: result.error?.description,
           errorCategory: result.error?.category,
+          errorStage: result.stage,
+          rawStatus: result.rawStatus,
           duration: result.duration
         )
       }
@@ -465,6 +520,7 @@ public actor DiskSession {
       // Unmount-only mode: unmount each volume individually
       // (This is less common, but we support it for backwards compatibility)
       var results: [SingleEjectResult] = []
+      await onProgress(.unmountStarted(deviceGroup.deviceID))
       for volume in deviceGroup.volumes {
         let result = await unmount(volume, options: options)
         results.append(
@@ -475,10 +531,32 @@ public actor DiskSession {
             success: result.success,
             errorMessage: result.error?.description,
             errorCategory: result.error?.category,
+            errorStage: result.stage,
+            rawStatus: result.rawStatus,
             duration: result.duration
           )
         )
       }
+      let firstFailure = results.first(where: { !$0.success })
+      let outcome: DeviceEjectOutcome
+      if results.allSatisfy(\.success) {
+        outcome = .unmounted(duration: results.map(\.duration).max() ?? 0)
+      } else if firstFailure?.errorCategory == .timeout {
+        outcome = .timedOut(stage: .unmount, duration: firstFailure?.duration ?? 0)
+      } else if firstFailure?.errorCategory == .cancelled {
+        outcome = .cancelled(stage: .unmount, duration: firstFailure?.duration ?? 0)
+      } else {
+        outcome = .failed(
+          DeviceEjectFailure(
+            deviceID: deviceGroup.deviceID,
+            stage: .unmount,
+            category: firstFailure?.errorCategory ?? .other,
+            rawStatus: firstFailure?.rawStatus
+          ),
+          duration: firstFailure?.duration ?? 0
+        )
+      }
+      await onProgress(.completed(deviceGroup.deviceID, outcome))
       return results
     }
   }
