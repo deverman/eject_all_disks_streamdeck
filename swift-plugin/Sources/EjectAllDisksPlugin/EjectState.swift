@@ -257,7 +257,7 @@ enum EjectPresentation {
         }
         if states.contains(where: { if case .ejecting(.slow) = $0 { true } else { false } }) ||
             states.contains(where: { if case .unmounting(.slow) = $0 { true } else { false } }) {
-            return "Still Working"
+            return "Working…"
         }
         return "Ejecting…"
     }

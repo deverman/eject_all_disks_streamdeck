@@ -187,7 +187,7 @@ debounce before reporting an error.
 - If macOS returns a dissenter at any time: publish the failure immediately.
   Do not wait for 3, 15, 25, or 30 seconds.
 - At `t = 3s`, if still pending: transition the active stage's wait status from
-  `normal` to `slow`; the key may show `Still Working`.
+  `normal` to `slow`; the key may show `Working…`.
 - At `t = 15s`, if still pending: transition to `attention`; the key shows
   `Check Disk` while the operation continues.
 - At `t = 25s`, if whole-disk unmount is still pending: finish SafeEject's wait
@@ -1088,7 +1088,7 @@ sleep as the primary synchronization mechanism.
 ### Timing presentation tests
 
 - Pending stage before 3 seconds maps to normal `Ejecting…`.
-- At 3 seconds it maps to `Still Working`.
+- At 3 seconds it maps to `Working…`.
 - At 15 seconds it maps to `Check Disk`.
 - A definitive `In Use` result overrides slow/attention presentation
   immediately.

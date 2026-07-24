@@ -251,7 +251,7 @@ struct EjectReducerTests {
             state: state,
             event: .slowThresholdReached(operationID, disk2, .unmount)
         ).state
-        #expect(EjectPresentation.make(state: state, settings: EjectActionSettings()).title == "Still Working")
+        #expect(EjectPresentation.make(state: state, settings: EjectActionSettings()).title == "Working…")
         state = EjectReducer.reduce(
             state: state,
             event: .attentionThresholdReached(operationID, disk2, .unmount)

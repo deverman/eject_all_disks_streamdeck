@@ -17,7 +17,7 @@ the minimum supported Stream Deck version.
   refresh — a mount/unmount/wake notification or the 30-second fallback check —
   so the key never stays stuck on a stale error.
 - **Long operations explain themselves.** A pending stage changes to
-  `Still Working` after 3 seconds and `Check Disk` after 15 seconds, so the key
+  `Working…` after 3 seconds and `Check Disk` after 15 seconds, so the key
   does not look frozen while macOS is still working.
 - **The 30-second value is an exceptional watchdog, not the expected delay.**
   Whole-disk unmount has an absolute 25-second ceiling. A successful unmount

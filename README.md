@@ -70,7 +70,7 @@ The macOS DiskArbitration framework requires elevated permissions to unmount and
 | **Idle (disks connected)** | Shows "X Disk(s)" count |
 | **Idle (no disks)** | Shows "No Disks" |
 | **Checking** | Shows "Checking…" until a fresh inventory is known |
-| **Ejecting** | Shows "Ejecting…", then "Still Working" at 3 seconds and "Check Disk" at 15 seconds if macOS is still working |
+| **Ejecting** | Shows "Ejecting…", then "Working…" at 3 seconds and "Check Disk" at 15 seconds if macOS is still working |
 | **Success** | Shows "Ejected!" only after macOS confirms physical eject |
 | **Error** | Shows error details: "In Use", "1 of 3 Failed", "Grant Access", etc. |
 | **Timeout/unconfirmed** | Shows "Check Disk"; never claims the disk is safe to remove |
