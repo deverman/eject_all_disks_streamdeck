@@ -239,14 +239,25 @@ The plugin uses the macOS DiskArbitration framework directly:
 
 1. Enumerates all mounted volumes using `DADiskCreateFromVolumePath`
 2. Filters to external, ejectable volumes only
-3. Groups partitions by physical device and requests whole-disk unmount using `DADiskUnmount`
-4. Ejects the physical device using `DADiskEject` only after confirmed unmount
-5. Runs all operations in parallel using Swift concurrency
+3. Resolves synthesized storage layers such as APFS through the public I/O
+   Registry service ancestry into an inner-to-outer whole-media stack
+4. Groups branches by physical device and requests whole-device unmount for
+   each distinct innermost mounted branch using `DADiskUnmount`
+5. Ejects synthesized whole-media layers before the physical device using
+   `DADiskEject`; only the final physical callback can confirm success
+6. Runs independent physical-device operations in parallel using Swift concurrency
 
 `Ejected!` is reachable only from a successful physical-eject callback. A busy
 or permission dissenter is shown immediately. Unmount has a 25-second absolute
 deadline and the entire per-device operation has one monotonic 30-second hard
 watchdog; these are exceptional ceilings, not normal waits.
+
+Apple defines a whole `IOMedia` as either a physical disk or a virtual replica,
+so `DADiskCopyWholeDisk` alone is not sufficient for APFS. SafeEject retains
+the complete whole-media ancestry and ejects it inner-to-outer; for example,
+virtual `disk7` before physical `disk6`. It fails closed if ancestry is
+unavailable or has multiple parents. Pressing the key when no disks are mounted
+is a neutral no-op; green is reserved for confirmed physical eject.
 
 This approach is typically ~6–10x faster than calling `diskutil eject` as a subprocess (machine and disk dependent).
 
@@ -267,6 +278,8 @@ This plugin is designed with security as a priority:
 - **Does not log volume names** - avoids exposing sensitive information like "ConfidentialProject"
 - Only logs BSD device names (e.g., "disk2s1") when debug logging is enabled
 - Logs are written using OSLog with appropriate privacy levels
+- Terminal success summaries are retained at notice level; failures, timeouts,
+  and cancellations are retained at error level for later support diagnosis
 
 ### Permissions
 

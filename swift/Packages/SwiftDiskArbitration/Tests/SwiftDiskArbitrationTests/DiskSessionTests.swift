@@ -32,6 +32,67 @@ struct DiskSessionTests {
     #expect(count1 == count2, "Both sessions should see the same volumes")
   }
 
+  @Test("Physical resolver ends at an idempotent outermost whole medium")
+  func physicalResolverFindsOrderedWholeMedia() throws {
+    let session = try #require(DASessionCreate(kCFAllocatorDefault))
+    let rootDisk = try #require(DADiskCreateFromVolumePath(
+      kCFAllocatorDefault,
+      session,
+      URL(fileURLWithPath: "/") as CFURL
+    ))
+
+    let firstResolution = try #require(PhysicalDiskResolver.resolve(
+      rootDisk,
+      session: session
+    ))
+    let secondResolution = try #require(PhysicalDiskResolver.resolve(
+      firstResolution.physicalDisk,
+      session: session
+    ))
+
+    #expect(!firstResolution.layers.isEmpty)
+    #expect(firstResolution.physicalBSDName == secondResolution.physicalBSDName)
+    #expect(secondResolution.bsdNames == [firstResolution.physicalBSDName])
+  }
+
+  @Test("APFS eject plan preserves inner-to-outer layer order")
+  func apfsEjectPlanOrder() throws {
+    let plan = try #require(DiskEjectPlan(
+      unmountBSDNames: ["disk7"],
+      ejectBSDNames: ["disk7", "disk6"]
+    ))
+
+    #expect(plan.unmountBSDNames == ["disk7"])
+    #expect(plan.ejectBSDNames == ["disk7", "disk6"])
+    #expect(plan.physicalBSDName == "disk6")
+  }
+
+  @Test("Device topology merges branches and keeps dependencies before physical media")
+  func deviceTopologyMergesBranches() throws {
+    let session = try #require(DASessionCreate(kCFAllocatorDefault))
+    let rootDisk = try #require(DADiskCreateFromVolumePath(
+      kCFAllocatorDefault,
+      session,
+      URL(fileURLWithPath: "/") as CFURL
+    ))
+    let layer: (String) -> ResolvedDiskLayer = {
+      ResolvedDiskLayer(disk: rootDisk, bsdName: $0)
+    }
+    let deepBranch = try #require(ResolvedDiskTopology(
+      layers: [layer("disk9"), layer("disk8"), layer("disk6")]
+    ))
+    let siblingBranch = try #require(ResolvedDiskTopology(
+      layers: [layer("disk7"), layer("disk6")]
+    ))
+    let device = try #require(ResolvedDeviceEjectTopology(
+      topologies: [siblingBranch, deepBranch]
+    ))
+
+    #expect(device.unmountLayers.map(\.bsdName) == ["disk9", "disk7"])
+    #expect(device.ejectLayers.map(\.bsdName) == ["disk9", "disk7", "disk8", "disk6"])
+    #expect(device.physicalBSDName == "disk6")
+  }
+
   @Test("Empty batch returns zero counts")
   func emptyBatch() async throws {
     let session = try DiskSession()

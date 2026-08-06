@@ -222,7 +222,11 @@ enum EjectReducer {
                 hadNoDisks: result.totalCount == 0
             )
             state = .completed(summary)
-            let feedback: KeyFeedback = (summary.hadNoDisks || summary.allDevicesSafeToRemove) ? .ok : .alert
+            // Green is reserved for a confirmed physical-device eject callback.
+            // Pressing the key with no mounted disks is a neutral no-op.
+            let feedback: KeyFeedback? = summary.hadNoDisks
+                ? nil
+                : (summary.allDevicesSafeToRemove ? .ok : .alert)
             effects.append(.renderAll(feedback))
             effects.append(.refreshInventory(.operationCompleted))
             if summary.hadNoDisks || summary.allDevicesSafeToRemove {

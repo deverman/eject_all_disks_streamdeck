@@ -29,19 +29,20 @@
 //
 //    This is safe because:
 //    - VolumeInfo is immutable (can't change after creation)
-//    - Both DADisk references are immutable after initialization
+//    - The DADisk reference is immutable after initialization
 //    - They are opaque CoreFoundation operation handles, never mutable storage
 //    - DiskArbitration delivers their callbacks on the session's configured queue
 //
-// 3. WHOLE DISK vs VOLUME
+// 3. PHYSICAL DISK vs VOLUME
 //    A physical USB drive might have multiple partitions:
 //
 //      USB Drive (disk2)          ← "whole disk" (physical device)
 //        ├── Partition 1 (disk2s1)  ← volume
 //        └── Partition 2 (disk2s2)  ← volume
 //
-//    To physically eject the USB, we need the "whole disk" reference.
-//    That's why we cache `wholeDisk` - it's the physical device to eject.
+//    APFS can add a synthesized "whole" disk between a mounted volume and its
+//    physical device. DiskSession resolves the outermost IOMedia ancestor at
+//    operation time so the actual hardware receives the eject request.
 //
 // 4. VOLUME ENUMERATION LOGIC (SECURITY)
 //    We list mounted volumes via FileManager.mountedVolumeURLs and use
@@ -107,7 +108,7 @@ public struct VolumeInfo: Sendable, Codable, Hashable {
 ///
 /// Thread Safety: This type is marked @unchecked Sendable because:
 /// - VolumeInfo is immutable and Sendable
-/// - Both DADisk references are immutable after initialization
+/// - The DADisk reference is immutable after initialization
 /// - They are passed only to documented DiskArbitration inspection/operation APIs
 /// - The owning DASession controls callback delivery on its configured queue
 public final class Volume: @unchecked Sendable {
@@ -117,10 +118,6 @@ public final class Volume: @unchecked Sendable {
   /// The cached DADisk reference for this volume
   /// This avoids the overhead of calling DADiskCreateFromVolumePath during ejection
   internal let disk: DADisk
-
-  /// The whole-disk reference (for multi-partition devices)
-  /// Resolved once during initialization and immutable thereafter
-  internal let wholeDisk: DADisk?
 
   /// URL for the volume mount point
   public var url: URL {
@@ -134,16 +131,6 @@ public final class Volume: @unchecked Sendable {
   internal init(info: VolumeInfo, disk: DADisk) {
     self.info = info
     self.disk = disk
-    // Pre-cache the whole disk reference
-    self.wholeDisk = DADiskCopyWholeDisk(disk)
-  }
-
-  /// Returns the BSD name of the whole disk (physical device).
-  /// For example, if this volume is "disk2s1", returns "disk2"
-  /// Returns nil if the whole disk reference is not available
-  internal var wholeDiskBSDName: String? {
-    guard let wholeDisk else { return nil }
-    return DiskArbitrationUnsafeAdapter.bsdName(of: wholeDisk)
   }
 }
 

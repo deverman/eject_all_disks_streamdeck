@@ -122,6 +122,25 @@ struct EjectReducerTests {
         #expect(EjectPresentation.make(state: state, settings: EjectActionSettings()).title == "No Disks")
     }
 
+    @Test("No-disk operation is neutral and never shows a green confirmation")
+    func noDiskOperationIsNeutral() {
+        let reduction = EjectReducer.reduce(
+            state: ejectingState(),
+            event: .operationCompleted(operationID, batchResult(total: 0, succeeded: 0))
+        )
+
+        #expect(EjectPresentation.make(
+            state: reduction.state,
+            settings: EjectActionSettings()
+        ).title == "No Disks")
+        #expect(reduction.effects.contains {
+            if case .renderAll(nil) = $0 { true } else { false }
+        })
+        #expect(!reduction.effects.contains {
+            if case .renderAll(.ok) = $0 { true } else { false }
+        })
+    }
+
     @Test("Session unavailable presents Failed, not No Disks")
     func unavailableInventory() {
         let state = EjectReducer.reduce(

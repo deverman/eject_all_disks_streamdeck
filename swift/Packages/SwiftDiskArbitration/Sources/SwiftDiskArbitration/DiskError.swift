@@ -6,6 +6,7 @@
 //
 
 import DiskArbitration
+import Darwin
 import Foundation
 
 /// Errors that can occur during disk operations.
@@ -218,6 +219,47 @@ extension DiskError {
   private static let kDAReturnNotWritable: DAReturn = Int32(bitPattern: 0xF8DA_000B)
   private static let kDAReturnUnsupported: DAReturn = Int32(bitPattern: 0xF8DA_000C)
 
+  // DADissenter.h permits BSD errno values encoded with mach/error.h's
+  // unix_err(errno): kernel system 0, subsystem 3, errno in the low 14 bits.
+  // For example, EBUSY (0x10) becomes 0x0000C010.
+  private static func decodedBSDErrno(from status: DAReturn) -> Int32? {
+    let bits = UInt32(bitPattern: status)
+    let system = bits >> 26
+    let subsystem = (bits >> 14) & 0x0FFF
+    guard system == 0, subsystem == 3 else { return nil }
+    return Int32(bits & 0x3FFF)
+  }
+
+  private static func fromEncodedBSDErrno(
+    status: DAReturn,
+    message: String?
+  ) -> DiskError? {
+    guard let code = decodedBSDErrno(from: status) else { return nil }
+
+    switch code {
+    case EBUSY:
+      return .busy(message: message)
+    case EACCES, EPERM:
+      return .notPermitted(message: message)
+    case EINVAL:
+      return .badArgument(message: message)
+    case ENOMEM, ENFILE, EMFILE:
+      return .noResources(message: message)
+    case ENOENT, ENODEV:
+      return .notFound(message: message)
+    case ENXIO:
+      return .notReady(message: message)
+    case EROFS:
+      return .notWritable(message: message)
+    case ENOTSUP:
+      return .unsupported(message: message)
+    case ETIMEDOUT:
+      return .timeout
+    default:
+      return nil
+    }
+  }
+
   /// Creates a DiskError from a DADissenter object
   /// - Parameter dissenter: The dissenter returned from a DiskArbitration callback
   /// - Returns: A corresponding DiskError, or nil if dissenter is nil (success)
@@ -271,6 +313,9 @@ extension DiskError {
     case kDAReturnUnsupported:
       return .unsupported(message: message)
     default:
+      if let bsdError = fromEncodedBSDErrno(status: status, message: message) {
+        return bsdError
+      }
       return .unknown(status: status, message: message)
     }
   }

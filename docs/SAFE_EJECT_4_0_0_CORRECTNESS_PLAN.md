@@ -1,6 +1,7 @@
 # SafeEject 4.0.0 correctness and architecture plan
 
-- Status: automated implementation and local installation complete; physical-device UAT, Instruments, and release publication remain gated
+- Status: corrected build installed, automated validation passed, and physical
+  UAT approved for release on 2026-08-06; merge and publication are in progress
 - Target branch: `eject-reliability-instant-counts`
 - Target release: SafeEject `4.0.0` / Stream Deck manifest version `4.0.0.0`
 - Required development toolchain: Swift `6.3.3` or newer in the Swift 6 language mode
@@ -8,13 +9,37 @@
 - Minimum Stream Deck: 6.9
 - Audience: an implementation agent with limited prior context
 
-Implementation checkpoint (2026-07-22): library tests pass with 55 tests,
-plugin tests pass with 90 tests, both strict compiler audits pass, library ASan
-and library/plugin TSan pass, release build passes, builder inspection has no
-diagnostics, and official installed-bundle validation passes. The exact release
-binary is installed and running as SafeEject `4.0.0.0` for UAT. The physical
-scenarios in section 22 and Instruments leak confirmation remain pending. No
-tag or release publication has been performed.
+Implementation checkpoint (2026-07-27): live Disk Arbitration logs first proved
+that the prior candidate ejected synthesized APFS `disk7` while physical USB
+`disk6` remained online. The first correction then resolved only `disk6`; UAT
+failed safely because macOS requires the synthesized APFS whole disk to be
+ejected before its physical store. A manual `diskutil eject disk6` trace
+confirmed the required sequence: unmount `disk7`, eject `disk7`, then eject
+`disk6`. The branch now resolves every whole-media ancestor, merges multiple
+branches per physical device, and submits unmount/eject work inner-to-outer.
+Only the final physical callback can produce green feedback. Privacy-safe
+structured OSLog records now retain the BSD layer order, stage, target,
+category, raw status, and duration.
+
+A later three-disk soak test completed two full concurrent eject cycles, then
+correctly refused to unmount two busy APFS volumes on a third cycle while the
+independent third disk ejected successfully. macOS reported BSD `EBUSY` as
+`unix_err(EBUSY)` (`0x0000C010`), which the library preserved but classified as
+`.other`. The correction now decodes documented BSD-wrapped Disk Arbitration
+statuses so this case presents `In Use`. It also persists terminal success at
+OSLog notice level and failures/timeouts/cancellations at error level after
+short-lived info records proved insufficient for multi-day diagnostics.
+Library tests pass with 60 tests normally, under AddressSanitizer, and under
+ThreadSanitizer. The plugin passes 91 tests normally and under ThreadSanitizer.
+The release build passed bundle validation, its installed SHA-256 matched the
+built artifact, and Stream Deck loaded the replacement process with clean
+startup and monitor records. Fresh physical three-disk UAT completed all devices
+concurrently through their inner APFS and outer physical layers. Continued use
+of the installed build was approved for release on 2026-08-06. A dedicated
+Instruments recording remains formally unchecked; the owner chose to proceed
+based on the sanitizer, deterministic regression, installed-binary, runtime-log,
+and extended physical-use evidence. No tag, merge, or release publication has
+occurred.
 
 ## 1. Objective
 
@@ -138,16 +163,27 @@ increase.
 
 ## 5. Apple API contract and the user safety promise
 
-The implementation must follow Apple's documented whole-device sequence:
+The implementation must preserve the storage dependency sequence observed from
+macOS's native whole-device eject:
 
-1. Obtain the whole-disk `DADisk`.
-2. Call `DADiskUnmount` with `kDADiskUnmountOptionWhole`.
-3. Wait for the unmount callback.
-4. If the callback contains a dissenter, stop and report the typed failure.
-5. If the callback contains no dissenter, call `DADiskEject` for the whole disk.
-6. Wait for the eject callback.
-7. Treat an eject callback with no dissenter as the authoritative success
-   signal.
+1. Obtain the volume's `IOMedia` with `DADiskCopyIOMedia`.
+2. Walk its parents in the I/O Registry service plane and retain every whole
+   `IOMedia`, because Apple defines whole media as a physical disk or a virtual
+   replica.
+3. Merge branches that share the same outermost physical device, preserving
+   every inner-before-outer dependency and deduplicating shared layers.
+4. Create each `DADisk` with `DADiskCreateFromIOMedia`. If ancestry is
+   unavailable, exceeds its bound, or has multiple parents, fail closed without
+   submitting an eject request.
+5. Call `DADiskUnmount` with `kDADiskUnmountOptionWhole` for each distinct
+   innermost mounted whole-media branch and wait for every callback.
+6. If a callback contains a dissenter, stop and report the typed failure.
+7. Eject each unique whole-media layer from inner to outer under the original
+   absolute deadline. For common APFS storage this is virtual `disk7`, then
+   physical `disk6`.
+8. Stop immediately if any eject callback contains a dissenter.
+9. Treat only the outermost physical eject callback with no dissenter as the
+   authoritative safe-to-remove signal.
 
 Authoritative references:
 
@@ -1126,8 +1162,11 @@ sleep as the primary synchronization mechanism.
 
 ### Privacy tests
 
-- Structured logs contain counts, stage, category, duration, operation ID, and
-  BSD identifier only where allowed.
+- Structured logs contain counts, resolved BSD layer order, stage, target,
+  category, raw status, duration, and operation ID only where allowed.
+- Terminal success summaries use OSLog notice; failures, timeouts, and
+  cancellations use OSLog error so multi-day support investigations do not
+  depend on short-lived info records.
 - Logs never contain volume name or path from synthetic sensitive test data.
 - Future diagnostic fields are not serialized or logged accidentally.
 
@@ -1374,7 +1413,14 @@ The implementation agent must not:
 - [x] State/event/effect/presentation types are enums/value types.
 - [x] Reducer has exhaustive deterministic tests.
 - [x] Only eject callback success reaches `safeToRemove`.
+- [x] APFS whole-media ancestry resolves and is ordered inner-to-outer.
+- [x] Multiple synthesized branches on one physical device are deduplicated
+  without racing the final physical eject.
+- [x] Every copied IOKit media, parent, and iterator handle is released.
+- [x] Ambiguous or unavailable physical ancestry fails closed.
+- [x] A no-disk key press is neutral and cannot request green feedback.
 - [x] Busy errors surface immediately.
+- [x] BSD-wrapped `unix_err(EBUSY)` maps to the typed busy category.
 - [x] Mixed-device outcomes cannot produce overall success.
 - [x] Failure retains device, stage, category, and raw status for future work.
 - [x] No PID/app scanning or blocker UI was added.
@@ -1389,11 +1435,11 @@ Use the following prompt in a future session:
 > that document as the implementation contract. Preserve unrelated user
 > changes and keep the worktree buildable after each phase.
 >
-> The automated implementation is complete. Do not reimplement the plan or
-> weaken its invariants. Audit the current diff, then continue with section 22's
-> physical Stream Deck/disk UAT and Instruments checks. If UAT exposes a defect,
-> make the smallest evidence-backed correction and add a deterministic
-> regression test before rerunning the full automated matrix.
+> The APFS inner-to-outer correction is implemented, installed, and approved by
+> replacement UAT. Audit the current diff, confirm the installed binary still
+> matches the release build, and continue with the merge and release workflow.
+> Preserve the UAT evidence showing successful eject callbacks for the
+> synthesized APFS whole disk and then the physical USB whole disk.
 >
 > Preserve the callback registry, monotonic deadlines, per-device progress,
 > enum-driven reducer, ordered event ingress, lifecycle tokens, fresh first

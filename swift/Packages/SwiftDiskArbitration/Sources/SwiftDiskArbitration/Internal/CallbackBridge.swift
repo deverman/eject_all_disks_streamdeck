@@ -9,7 +9,13 @@
 
 import DiskArbitration
 import Foundation
+import OSLog
 import Synchronization
+
+internal let diskOperationLog = Logger(
+  subsystem: "org.deverman.ejectalldisks",
+  category: "disk-operation"
+)
 
 /// Result of an unmount or eject operation.
 public struct DiskOperationResult: Sendable {
@@ -218,9 +224,83 @@ nonisolated internal func unmountWholeDiskAndEject(
   deviceID: PhysicalDeviceID? = nil,
   onProgress: @escaping @Sendable (DeviceEjectEvent) async -> Void = { _ in }
 ) async -> DiskOperationResult {
+  guard
+    let bsdName = DiskArbitrationUnsafeAdapter.bsdName(of: wholeDisk),
+    let topology = ResolvedDiskTopology(
+      layers: [ResolvedDiskLayer(disk: wholeDisk, bsdName: bsdName)]
+    )
+  else {
+    return DiskOperationResult(
+      success: false,
+      error: .invalidDiskReference,
+      duration: 0,
+      stage: .unmount
+    )
+  }
+
+  return await unmountResolvedDiskStackAndEject(
+    topology,
+    force: force,
+    deviceID: deviceID,
+    onProgress: onProgress
+  )
+}
+
+/// Unmounts the innermost whole media, then ejects every whole-media layer
+/// from inner to outer. APFS commonly requires `disk7` before physical `disk6`.
+///
+/// Every stage shares one absolute monotonic 30-second deadline. Completing an
+/// intermediate virtual eject never produces `safeToRemove`; only confirmation
+/// from the outermost physical layer does.
+nonisolated internal func unmountResolvedDiskStackAndEject(
+  _ topology: ResolvedDiskTopology,
+  force: Bool,
+  deviceID: PhysicalDeviceID? = nil,
+  onProgress: @escaping @Sendable (DeviceEjectEvent) async -> Void = { _ in }
+) async -> DiskOperationResult {
+  guard let deviceTopology = ResolvedDeviceEjectTopology(topologies: [topology]) else {
+    return DiskOperationResult(
+      success: false,
+      error: .invalidDiskReference,
+      duration: 0,
+      stage: .unmount
+    )
+  }
+
+  return await unmountResolvedDeviceTopologyAndEject(
+    deviceTopology,
+    force: force,
+    deviceID: deviceID,
+    onProgress: onProgress
+  )
+}
+
+nonisolated internal func unmountResolvedDeviceTopologyAndEject(
+  _ topology: ResolvedDeviceEjectTopology,
+  force: Bool,
+  deviceID: PhysicalDeviceID? = nil,
+  onProgress: @escaping @Sendable (DeviceEjectEvent) async -> Void = { _ in }
+) async -> DiskOperationResult {
   let clock = ContinuousClock()
   let startedAt = clock.now
   let deadlines = DeviceOperationDeadlines<ContinuousClock>(startedAt: startedAt)
+  let plan = DiskEjectPlan(
+    unmountBSDNames: topology.unmountLayers.map(\.bsdName),
+    ejectBSDNames: topology.ejectLayers.map(\.bsdName)
+  )
+
+  guard
+    let plan,
+    plan.unmountBSDNames.count == topology.unmountLayers.count,
+    plan.ejectBSDNames.count == topology.ejectLayers.count
+  else {
+    return DiskOperationResult(
+      success: false,
+      error: .invalidDiskReference,
+      duration: 0,
+      stage: .unmount
+    )
+  }
 
   var unmountOptions = kDADiskUnmountOptionWhole
   if force {
@@ -231,19 +311,33 @@ nonisolated internal func unmountWholeDiskAndEject(
     await onProgress(.unmountStarted(deviceID))
   }
 
-  let unmountResult = await unmountDiskAsync(
-    wholeDisk,
-    options: DADiskUnmountOptions(unmountOptions),
-    deadline: deadlines.unmountDeadline,
-    startedAt: startedAt,
-    clock: clock
+  diskOperationLog.info(
+    "operation=start device=\(plan.physicalBSDName, privacy: .public) unmountTargets=\(plan.unmountBSDNames.joined(separator: ","), privacy: .public) ejectLayers=\(plan.ejectBSDNames.joined(separator: ","), privacy: .public)"
   )
 
-  guard unmountResult.success else {
-    if let deviceID {
-      await onProgress(.completed(deviceID, outcome(for: unmountResult, deviceID: deviceID)))
+  for layer in topology.unmountLayers {
+    diskOperationLog.info(
+      "stage=unmount event=submit device=\(plan.physicalBSDName, privacy: .public) target=\(layer.bsdName, privacy: .public)"
+    )
+    let unmountResult = await unmountDiskAsync(
+      layer.disk,
+      options: DADiskUnmountOptions(unmountOptions),
+      deadline: deadlines.unmountDeadline,
+      startedAt: startedAt,
+      clock: clock
+    )
+    logDiskStageResult(
+      unmountResult,
+      deviceBSDName: plan.physicalBSDName,
+      targetBSDName: layer.bsdName
+    )
+
+    guard unmountResult.success else {
+      if let deviceID {
+        await onProgress(.completed(deviceID, outcome(for: unmountResult, deviceID: deviceID)))
+      }
+      return unmountResult
     }
-    return unmountResult
   }
 
   if let deviceID {
@@ -251,25 +345,84 @@ nonisolated internal func unmountWholeDiskAndEject(
     await onProgress(.ejectStarted(deviceID))
   }
 
-  let ejectResult = await ejectDiskAsync(
-    wholeDisk,
-    deadline: deadlines.overallDeadline,
-    startedAt: startedAt,
-    clock: clock
-  )
+  var lastEjectResult: DiskOperationResult?
+  for layer in topology.ejectLayers {
+    diskOperationLog.info(
+      "stage=eject event=submit device=\(plan.physicalBSDName, privacy: .public) target=\(layer.bsdName, privacy: .public)"
+    )
+    let ejectResult = await ejectDiskAsync(
+      layer.disk,
+      deadline: deadlines.overallDeadline,
+      startedAt: startedAt,
+      clock: clock
+    )
+    logDiskStageResult(
+      ejectResult,
+      deviceBSDName: plan.physicalBSDName,
+      targetBSDName: layer.bsdName
+    )
+    lastEjectResult = ejectResult
+
+    guard ejectResult.success else {
+      if let deviceID {
+        await onProgress(.completed(deviceID, outcome(for: ejectResult, deviceID: deviceID)))
+      }
+      return ejectResult
+    }
+  }
+
+  guard let lastEjectResult else {
+    return DiskOperationResult(
+      success: false,
+      error: .invalidDiskReference,
+      duration: startedAt.duration(to: clock.now).diskOperationTimeInterval,
+      stage: .eject
+    )
+  }
 
   let combined = DiskOperationResult(
-    success: ejectResult.success,
-    error: ejectResult.error,
+    success: true,
+    error: nil,
     duration: startedAt.duration(to: clock.now).diskOperationTimeInterval,
-    stage: ejectResult.stage,
-    rawStatus: ejectResult.rawStatus
+    stage: .eject,
+    rawStatus: lastEjectResult.rawStatus
+  )
+
+  diskOperationLog.notice(
+    "operation=complete device=\(plan.physicalBSDName, privacy: .public) result=success category=none rawStatus=\(diskStatusDescription(combined.rawStatus), privacy: .public) durationSeconds=\(combined.duration, privacy: .public) ejectLayers=\(plan.ejectBSDNames.joined(separator: ","), privacy: .public)"
   )
 
   if let deviceID {
     await onProgress(.completed(deviceID, outcome(for: combined, deviceID: deviceID)))
   }
   return combined
+}
+
+private nonisolated func logDiskStageResult(
+  _ result: DiskOperationResult,
+  deviceBSDName: String,
+  targetBSDName: String
+) {
+  let resultName = result.success ? "success" : "failure"
+  let category = result.error?.category.rawValue ?? "none"
+  let rawStatus = diskStatusDescription(result.rawStatus)
+  let stage = result.stage?.rawValue ?? "unknown"
+
+  if result.success {
+    diskOperationLog.info(
+      "stage=\(stage, privacy: .public) event=complete device=\(deviceBSDName, privacy: .public) target=\(targetBSDName, privacy: .public) result=\(resultName, privacy: .public) category=\(category, privacy: .public) rawStatus=\(rawStatus, privacy: .public) durationSeconds=\(result.duration, privacy: .public)"
+    )
+  } else {
+    diskOperationLog.error(
+      "operation=complete stage=\(stage, privacy: .public) device=\(deviceBSDName, privacy: .public) target=\(targetBSDName, privacy: .public) result=\(resultName, privacy: .public) category=\(category, privacy: .public) rawStatus=\(rawStatus, privacy: .public) durationSeconds=\(result.duration, privacy: .public)"
+    )
+  }
+}
+
+private nonisolated func diskStatusDescription(_ status: DAReturn?) -> String {
+  guard let status else { return "none" }
+  let hex = String(UInt32(bitPattern: status), radix: 16, uppercase: true)
+  return "0x" + String(repeating: "0", count: max(0, 8 - hex.count)) + hex
 }
 
 private func outcome(
@@ -310,24 +463,4 @@ private func outcome(
       duration: result.duration
     )
   }
-}
-
-nonisolated internal func unmountAndEjectAsync(
-  _ volume: Volume,
-  ejectAfterUnmount: Bool,
-  force: Bool
-) async -> DiskOperationResult {
-  if ejectAfterUnmount, let wholeDisk = volume.wholeDisk {
-    return await unmountWholeDiskAndEject(wholeDisk, force: force)
-  }
-
-  var unmountOptions = kDADiskUnmountOptionDefault
-  if force {
-    unmountOptions |= kDADiskUnmountOptionForce
-  }
-
-  return await unmountDiskAsync(
-    volume.disk,
-    options: DADiskUnmountOptions(unmountOptions)
-  )
 }

@@ -9,6 +9,7 @@ A modern Swift wrapper for macOS DiskArbitration framework with async/await supp
 - **Async/await** APIs for all disk operations
 - Absolute monotonic 25-second unmount and 30-second overall watchdogs
 - Leak-free opaque-token callback bridge with exactly-once completion
+- Ordered inner-to-outer ejection through synthesized APFS storage layers
 - Per-physical-device progress and structured stage/status failures
 - **Actor-based** session management for thread safety
 - Direct `DADiskUnmount` calls (no subprocess spawning)
@@ -174,6 +175,7 @@ SwiftDiskArbitration/
     ├── CallbackBridge.swift              # Absolute-deadline orchestration
     ├── DiskOperationRegistry.swift       # Mutex + opaque token completion race
     ├── DiskArbitrationUnsafeAdapter.swift # Audited C/pointer boundary
+    ├── PhysicalDiskResolver.swift        # Leak-safe I/O Registry ancestry walk
     └── DiskOperationTiming.swift         # Clock-generic deadline policy
 ```
 
@@ -186,6 +188,13 @@ remove the same entry; only the winner resumes it, outside the mutex. Missing,
 late, duplicate, unknown, and nil callback contexts therefore cannot leak or
 access freed Swift memory. `DiskSession` uses an isolated deinitializer to
 unschedule its `DASession` without `nonisolated(unsafe)` state.
+
+Physical-device resolution uses `DADiskCopyIOMedia` and the public I/O Registry
+service ancestry because Apple's "whole media" definition includes virtual
+replicas. Distinct mounted branches are unmounted, then unique whole-media
+layers are ejected inner-to-outer so APFS virtual media precedes the physical
+store. Every copied media, parent, and iterator handle is balanced with
+`IOObjectRelease`; ambiguous multi-parent graphs fail closed.
 
 ### Thread Safety
 

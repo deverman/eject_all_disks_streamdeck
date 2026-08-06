@@ -52,6 +52,7 @@
 
 import DiskArbitration
 import Foundation
+import OSLog
 
 /// Result of ejecting multiple volumes
 public struct BatchEjectResult: Sendable {
@@ -247,10 +248,32 @@ public actor DiskSession {
       return DiskOperationResult(success: false, error: .sessionCreationFailed, duration: 0)
     }
 
-    return await unmountAndEjectAsync(
-      volume,
-      ejectAfterUnmount: options.ejectPhysicalDevice,
-      force: options.force
+    if options.ejectPhysicalDevice {
+      guard let topology = PhysicalDiskResolver.resolve(volume.disk, session: daSession) else {
+        let sourceBSDName = volume.info.bsdName ?? "unknown"
+        diskOperationLog.error(
+          "operation=resolve result=failure source=\(sourceBSDName, privacy: .public) category=unavailable_or_ambiguous"
+        )
+        return DiskOperationResult(
+          success: false,
+          error: .invalidDiskReference,
+          duration: 0,
+          stage: .unmount
+        )
+      }
+      return await unmountResolvedDiskStackAndEject(
+        topology,
+        force: options.force
+      )
+    }
+
+    var unmountOptions = kDADiskUnmountOptionDefault
+    if options.force {
+      unmountOptions |= kDADiskUnmountOptionForce
+    }
+    return await unmountDiskAsync(
+      volume.disk,
+      options: DADiskUnmountOptions(unmountOptions)
     )
   }
 
@@ -291,16 +314,14 @@ public actor DiskSession {
   /// DASession is scheduled once on `callbackQueue`; child tasks submit documented
   /// DiskArbitration operations and never mutate the handle's storage.
   private struct PhysicalDeviceGroup: @unchecked Sendable {
-    /// BSD name of the whole disk (e.g., "disk2")
-    let wholeDiskBSDName: String
-
     let deviceID: PhysicalDeviceID
 
     /// All volumes on this physical device
     let volumes: [Volume]
 
-    /// The whole disk reference (same for all volumes in this group)
-    let wholeDisk: DADisk
+    /// One ancestry chain per distinct mounted storage branch. Nil means
+    /// resolution failed and the operation must fail closed.
+    let topologies: [ResolvedDiskTopology]?
   }
 
   /// Groups volumes by their physical device (whole disk).
@@ -313,49 +334,52 @@ public actor DiskSession {
     var groups: [String: PhysicalDeviceGroup] = [:]
 
     for volume in volumes {
-      // Get the whole disk BSD name
-      guard let wholeDiskBSDName = volume.wholeDiskBSDName,
-        let wholeDisk = volume.wholeDisk
-      else {
-        // If we can't get the whole disk, create a single-volume group
-        // using the volume's own BSD name as a fallback
+      guard let resolvedDisk = PhysicalDiskResolver.resolve(volume.disk, session: daSession) else {
+        // Preserve a result for the volume, but never submit an eject request
+        // against the mounted volume as a fallback. That could succeed for a
+        // synthesized APFS disk without making the hardware safe to unplug.
         let fallbackKey = volume.info.bsdName ?? UUID().uuidString
+        diskOperationLog.error(
+          "operation=resolve result=failure source=\(fallbackKey, privacy: .public) category=unavailable_or_ambiguous"
+        )
         if let existingGroup = groups[fallbackKey] {
           var updatedVolumes = existingGroup.volumes
           updatedVolumes.append(volume)
           groups[fallbackKey] = PhysicalDeviceGroup(
-            wholeDiskBSDName: fallbackKey,
             deviceID: existingGroup.deviceID,
             volumes: updatedVolumes,
-            wholeDisk: existingGroup.wholeDisk
+            topologies: nil
           )
         } else {
           groups[fallbackKey] = PhysicalDeviceGroup(
-            wholeDiskBSDName: fallbackKey,
             deviceID: PhysicalDeviceID(bsdName: fallbackKey),
             volumes: [volume],
-            wholeDisk: volume.disk
+            topologies: nil
           )
         }
         continue
       }
 
+      let physicalBSDName = resolvedDisk.physicalBSDName
+
       // Add to existing group or create new one
-      if let existingGroup = groups[wholeDiskBSDName] {
+      if let existingGroup = groups[physicalBSDName] {
         var updatedVolumes = existingGroup.volumes
         updatedVolumes.append(volume)
-        groups[wholeDiskBSDName] = PhysicalDeviceGroup(
-          wholeDiskBSDName: wholeDiskBSDName,
-          deviceID: PhysicalDeviceID(bsdName: wholeDiskBSDName),
+        var updatedTopologies = existingGroup.topologies ?? []
+        if !updatedTopologies.contains(where: { $0.bsdNames == resolvedDisk.bsdNames }) {
+          updatedTopologies.append(resolvedDisk)
+        }
+        groups[physicalBSDName] = PhysicalDeviceGroup(
+          deviceID: PhysicalDeviceID(bsdName: physicalBSDName),
           volumes: updatedVolumes,
-          wholeDisk: wholeDisk
+          topologies: updatedTopologies
         )
       } else {
-        groups[wholeDiskBSDName] = PhysicalDeviceGroup(
-          wholeDiskBSDName: wholeDiskBSDName,
-          deviceID: PhysicalDeviceID(bsdName: wholeDiskBSDName),
+        groups[physicalBSDName] = PhysicalDeviceGroup(
+          deviceID: PhysicalDeviceID(bsdName: physicalBSDName),
           volumes: [volume],
-          wholeDisk: wholeDisk
+          topologies: [resolvedDisk]
         )
       }
     }
@@ -480,9 +504,9 @@ public actor DiskSession {
 
   /// Ejects a physical device and all its volumes.
   ///
-  /// This method unmounts all volumes on the device with kDADiskUnmountOptionWhole,
-  /// then ejects the physical device once — via the shared
-  /// `unmountWholeDiskAndEject` helper, within a single overall time budget.
+  /// This method unmounts each distinct innermost whole-media branch, then
+  /// ejects every unique synthesized layer before ejecting the physical device
+  /// once, within a single overall time budget.
   ///
   /// - Parameters:
   ///   - deviceGroup: The physical device group to eject
@@ -495,8 +519,39 @@ public actor DiskSession {
   ) async -> [SingleEjectResult] {
     // If we're ejecting the physical device
     if options.ejectPhysicalDevice {
-      let result = await unmountWholeDiskAndEject(
-        deviceGroup.wholeDisk,
+      guard
+        let topologies = deviceGroup.topologies,
+        let deviceTopology = ResolvedDeviceEjectTopology(topologies: topologies)
+      else {
+        let error = DiskError.invalidDiskReference
+        let failure = DeviceEjectFailure(
+          deviceID: deviceGroup.deviceID,
+          stage: .unmount,
+          category: error.category,
+          rawStatus: nil
+        )
+        await onProgress(.unmountStarted(deviceGroup.deviceID))
+        await onProgress(.completed(
+          deviceGroup.deviceID,
+          .failed(failure, duration: 0)
+        ))
+        return deviceGroup.volumes.map { volume in
+          SingleEjectResult(
+            volumeName: volume.info.name,
+            volumePath: volume.info.path,
+            bsdName: volume.info.bsdName,
+            success: false,
+            errorMessage: error.description,
+            errorCategory: error.category,
+            errorStage: .unmount,
+            rawStatus: nil,
+            duration: 0
+          )
+        }
+      }
+
+      let result = await unmountResolvedDeviceTopologyAndEject(
+        deviceTopology,
         force: options.force,
         deviceID: deviceGroup.deviceID,
         onProgress: onProgress

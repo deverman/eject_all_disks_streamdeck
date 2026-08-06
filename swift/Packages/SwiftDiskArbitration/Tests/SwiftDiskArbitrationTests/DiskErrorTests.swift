@@ -60,6 +60,34 @@ struct DiskErrorTests {
     }
   }
 
+  @Test("BSD-encoded EBUSY from Disk Arbitration maps to busy")
+  func bsdEncodedBusyConversion() {
+    let raw = Int32(bitPattern: 0x0000_C010)
+    let error = DiskError.from(status: raw, message: nil)
+
+    if case .busy = error {
+      #expect(error.category == .busy)
+      #expect(error.isDiskBusy)
+    } else {
+      Issue.record("Expected unix_err(EBUSY) to map to .busy")
+    }
+  }
+
+  @Test("Other recognized BSD-encoded statuses retain typed categories")
+  func otherBSDEncodedConversions() {
+    let permission = DiskError.from(
+      status: Int32(bitPattern: 0x0000_C001),
+      message: nil
+    )
+    let readOnly = DiskError.from(
+      status: Int32(bitPattern: 0x0000_C01E),
+      message: nil
+    )
+
+    #expect(permission.category == .permission)
+    #expect(readOnly.category == .notWritable)
+  }
+
   @Test("Unknown status codes produce .unknown error")
   func unknownStatusCode() {
     let raw = Int32(bitPattern: 0x1234_5678)
