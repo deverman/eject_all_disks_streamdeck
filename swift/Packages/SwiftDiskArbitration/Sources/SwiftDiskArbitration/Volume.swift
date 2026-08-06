@@ -29,21 +29,24 @@
 //
 //    This is safe because:
 //    - VolumeInfo is immutable (can't change after creation)
-//    - DADisk is read-only after we create it
-//    - We only use it for eject operations (which are thread-safe)
+//    - The DADisk reference is immutable after initialization
+//    - They are opaque CoreFoundation operation handles, never mutable storage
+//    - DiskArbitration delivers their callbacks on the session's configured queue
 //
-// 3. WHOLE DISK vs VOLUME
+// 3. PHYSICAL DISK vs VOLUME
 //    A physical USB drive might have multiple partitions:
 //
 //      USB Drive (disk2)          ← "whole disk" (physical device)
 //        ├── Partition 1 (disk2s1)  ← volume
 //        └── Partition 2 (disk2s2)  ← volume
 //
-//    To physically eject the USB, we need the "whole disk" reference.
-//    That's why we cache `wholeDisk` - it's the physical device to eject.
+//    APFS can add a synthesized "whole" disk between a mounted volume and its
+//    physical device. DiskSession resolves the outermost IOMedia ancestor at
+//    operation time so the actual hardware receives the eject request.
 //
 // 4. VOLUME ENUMERATION LOGIC (SECURITY)
-//    We scan /Volumes and use SYSTEM APIs to filter safely:
+//    We list mounted volumes via FileManager.mountedVolumeURLs and use
+//    SYSTEM APIs to filter safely:
 //    - Use .volumeIsRootFileSystemKey to detect boot volume (not name!)
 //    - Use .volumeIsBrowsableKey to detect system-only volumes
 //    - Use DiskArbitration properties as additional safety check
@@ -105,8 +108,9 @@ public struct VolumeInfo: Sendable, Codable, Hashable {
 ///
 /// Thread Safety: This type is marked @unchecked Sendable because:
 /// - VolumeInfo is immutable and Sendable
-/// - DADisk (CFType) is thread-safe for read operations after creation
-/// - The disk reference is only used for unmount/eject operations which are thread-safe
+/// - The DADisk reference is immutable after initialization
+/// - They are passed only to documented DiskArbitration inspection/operation APIs
+/// - The owning DASession controls callback delivery on its configured queue
 public final class Volume: @unchecked Sendable {
   /// Information about this volume
   public let info: VolumeInfo
@@ -114,10 +118,6 @@ public final class Volume: @unchecked Sendable {
   /// The cached DADisk reference for this volume
   /// This avoids the overhead of calling DADiskCreateFromVolumePath during ejection
   internal let disk: DADisk
-
-  /// The whole-disk reference (for multi-partition devices)
-  /// Cached lazily when needed for ejection
-  internal private(set) var wholeDisk: DADisk?
 
   /// URL for the volume mount point
   public var url: URL {
@@ -131,25 +131,6 @@ public final class Volume: @unchecked Sendable {
   internal init(info: VolumeInfo, disk: DADisk) {
     self.info = info
     self.disk = disk
-    // Pre-cache the whole disk reference
-    self.wholeDisk = DADiskCopyWholeDisk(disk)
-  }
-
-  deinit {
-    // DADisk is a CFType, Swift handles release via ARC
-    // wholeDisk is also managed by ARC
-  }
-
-  /// Returns the BSD name of the whole disk (physical device).
-  /// For example, if this volume is "disk2s1", returns "disk2"
-  /// Returns nil if the whole disk reference is not available
-  internal var wholeDiskBSDName: String? {
-    guard let wholeDisk = wholeDisk,
-      let bsdName = DADiskGetBSDName(wholeDisk)
-    else {
-      return nil
-    }
-    return String(cString: bsdName)
   }
 }
 
@@ -173,51 +154,47 @@ extension Volume {
   /// - Parameter session: The DiskArbitration session to use
   /// - Returns: Array of ejectable volumes with cached disk references
   public static func enumerateEjectableVolumes(session: DASession) -> [Volume] {
-    let fileManager = FileManager.default
-    let volumesPath = "/Volumes"
+    // Volume properties come from URL resource values — the authoritative
+    // source for volume characteristics.
+    let resourceKeys: Set<URLResourceKey> = [
+      .volumeIsRootFileSystemKey,    // Is this the boot volume?
+      .volumeIsEjectableKey,         // Can this be ejected?
+      .volumeIsRemovableKey,         // Is this removable media?
+      .volumeIsInternalKey,          // Is this an internal drive?
+      .volumeIsLocalKey,             // Is this a local (not network) volume?
+      .volumeIsBrowsableKey,         // Is this browsable by users?
+    ]
 
-    guard let contents = try? fileManager.contentsOfDirectory(atPath: volumesPath) else {
+    // mountedVolumeURLs is the canonical mount-point API: it pre-fetches the
+    // resource values in one pass, covers volumes mounted outside /Volumes,
+    // and .skipHiddenVolumes drops nobrowse mounts (Preboot, Recovery,
+    // com.apple.* service volumes, local Time Machine snapshots) without any
+    // name matching.
+    guard
+      let mountedURLs = FileManager.default.mountedVolumeURLs(
+        includingResourceValuesForKeys: Array(resourceKeys),
+        options: [.skipHiddenVolumes]
+      )
+    else {
       return []
     }
 
     var volumes: [Volume] = []
 
-    for name in contents {
-      // Skip hidden files (e.g., .timemachine, .Spotlight-V100)
-      guard !name.hasPrefix(".") else { continue }
+    for url in mountedURLs {
+      let name = url.lastPathComponent
+      let path = url.path
 
-      // Skip Apple system volumes by prefix (these are internal system things)
-      guard !name.hasPrefix("com.apple.") else { continue }
-
-      // Skip Time Machine local snapshots
+      // Conservative exclusion: a mounted Time Machine backup image
+      // ("Backups of <Mac>") is browsable, local, and a disk image, so the
+      // API-based checks below would include it. Ejecting it mid-backup could
+      // corrupt the backup, so skip it by its fixed system-assigned name.
       guard !name.hasPrefix("Backups of ") else { continue }
-
-      let path = "\(volumesPath)/\(name)"
-      let url = URL(fileURLWithPath: path)
-
-      // Verify it's a directory (mount point)
-      var isDirectory: ObjCBool = false
-      guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
-        isDirectory.boolValue
-      else {
-        continue
-      }
 
       // =====================================================================
       // SECURITY: Use system APIs to detect protected volumes
       // This is safer than matching volume names, which users can change.
       // =====================================================================
-
-      // Get volume properties from the filesystem using URL resource values
-      // These are the authoritative source for volume characteristics
-      let resourceKeys: Set<URLResourceKey> = [
-        .volumeIsRootFileSystemKey,    // Is this the boot volume?
-        .volumeIsEjectableKey,         // Can this be ejected?
-        .volumeIsRemovableKey,         // Is this removable media?
-        .volumeIsInternalKey,          // Is this an internal drive?
-        .volumeIsLocalKey,             // Is this a local (not network) volume?
-        .volumeIsBrowsableKey,         // Is this browsable by users?
-      ]
 
       guard let resourceValues = try? url.resourceValues(forKeys: resourceKeys) else {
         continue
@@ -279,10 +256,7 @@ extension Volume {
       }
 
       // Get BSD name from the disk
-      var bsdName: String? = nil
-      if let bsdNameCStr = DADiskGetBSDName(disk) {
-        bsdName = String(cString: bsdNameCStr)
-      }
+      let bsdName = DiskArbitrationUnsafeAdapter.bsdName(of: disk)
 
       // Check if it's a disk image
       let isDiskImage = checkIfDiskImage(disk: disk)

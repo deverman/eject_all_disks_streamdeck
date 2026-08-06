@@ -7,15 +7,18 @@ A modern Swift wrapper for macOS DiskArbitration framework with async/await supp
 - **Fast** disk ejection compared to `diskutil` subprocess (no process spawning)
 - **Swift concurrency** friendly APIs (actors + async/await)
 - **Async/await** APIs for all disk operations
-- Timeout-protected unmount/eject operations (prevents hangs)
+- Absolute monotonic 25-second unmount and 30-second overall watchdogs
+- Leak-free opaque-token callback bridge with exactly-once completion
+- Ordered inner-to-outer ejection through synthesized APFS storage layers
+- Per-physical-device progress and structured stage/status failures
 - **Actor-based** session management for thread safety
 - Direct `DADiskUnmount` calls (no subprocess spawning)
 
 ## Requirements
 
-- macOS 13.0+
-- Swift 6.2.1+
-- Xcode 15+
+- macOS 26+
+- Swift 6.3.3+
+- Xcode 26+ or an equivalent Swift 6.3.3 toolchain
 
 ## Installation
 
@@ -37,12 +40,14 @@ dependencies: [
 import SwiftDiskArbitration
 
 // Eject all external volumes
-let result = await DiskSession.shared.ejectAllExternal()
-print("Ejected \(result.successCount)/\(result.totalCount) volumes in \(result.totalDuration)s")
+if let session = DiskSession.shared {
+    let result = await session.ejectAllExternal()
+    print("Ejected \(result.successCount)/\(result.totalCount) volumes in \(result.totalDuration)s")
+}
 
 // Or enumerate and eject selectively
 let session = try DiskSession()
-let volumes = session.enumerateEjectableVolumes()
+let volumes = await session.enumerateEjectableVolumes()
 
 for volume in volumes {
     print("Found: \(volume.info.name)")
@@ -64,14 +69,14 @@ The main entry point for disk operations. Uses actor isolation for thread safety
 
 ```swift
 // Shared singleton
-let session = DiskSession.shared
+let session = DiskSession.shared // Optional: session creation can fail gracefully.
 
 // Or create your own
 let session = try DiskSession()
 
 // Enumerate volumes
-let volumes = session.enumerateEjectableVolumes()
-let count = session.ejectableVolumeCount()
+let volumes = await session?.enumerateEjectableVolumes() ?? []
+let count = await session?.ejectableVolumeCount() ?? 0
 
 // Eject single volume
 let result = await session.unmount(volume)
@@ -167,24 +172,38 @@ SwiftDiskArbitration/
 ├── DiskError.swift        # Swift error types
 ├── SwiftDiskArbitration.swift  # Public API re-exports
 └── Internal/
-    └── CallbackBridge.swift    # C callback to async bridge
+    ├── CallbackBridge.swift              # Absolute-deadline orchestration
+    ├── DiskOperationRegistry.swift       # Mutex + opaque token completion race
+    ├── DiskArbitrationUnsafeAdapter.swift # Audited C/pointer boundary
+    ├── PhysicalDiskResolver.swift        # Leak-safe I/O Registry ancestry walk
+    └── DiskOperationTiming.swift         # Clock-generic deadline policy
 ```
 
 ### Memory Management
 
-The package carefully manages memory for DiskArbitration callbacks:
+The package never passes a retained Swift object to DiskArbitration. It encodes
+a nonzero integer as an opaque callback cookie and stores the continuation in a
+`Synchronization.Mutex` registry. Callback, watchdog, and cancellation atomically
+remove the same entry; only the winner resumes it, outside the mutex. Missing,
+late, duplicate, unknown, and nil callback contexts therefore cannot leak or
+access freed Swift memory. `DiskSession` uses an isolated deinitializer to
+unschedule its `DASession` without `nonisolated(unsafe)` state.
 
-1. **Continuation storage**: Uses `Unmanaged.passRetained()` to prevent deallocation before callback
-2. **Balanced release**: Callback uses `takeRetainedValue()` to release
-3. **Exactly-once resume**: Each continuation resumes exactly once
-4. **Session lifecycle**: DASession unscheduled in deinit
+Physical-device resolution uses `DADiskCopyIOMedia` and the public I/O Registry
+service ancestry because Apple's "whole media" definition includes virtual
+replicas. Distinct mounted branches are unmounted, then unique whole-media
+layers are ejected inner-to-outer so APFS virtual media precedes the physical
+store. Every copied media, parent, and iterator handle is balanced with
+`IOObjectRelease`; ambiguous multi-parent graphs fail closed.
 
 ### Thread Safety
 
 - `DiskSession` is an actor - all state access is serialized
-- Volume enumeration is `nonisolated` (read-only, thread-safe)
-- C callbacks spawn Tasks to re-enter actor isolation
-- `@unchecked Sendable` used only where safety is verified
+- The callback registry uses `Synchronization.Mutex` for its synchronous C boundary
+- All elapsed time and deadlines use `ContinuousClock`
+- Child tasks operate independently per physical device and publish typed progress
+- The package builds in Swift 6 mode with strict memory safety, warnings-as-errors,
+  explicit public `Sendable` declarations, and debug actor race checks
 
 ## License
 

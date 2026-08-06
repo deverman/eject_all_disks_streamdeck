@@ -5,8 +5,9 @@
 //  Tests for DiskSession actor and operations
 //
 
-import Testing
+import DiskArbitration
 import Foundation
+import Testing
 
 @testable import SwiftDiskArbitration
 
@@ -14,9 +15,8 @@ import Foundation
 struct DiskSessionTests {
 
   @Test("Shared session is available")
-  func sharedSession() async {
-    // Should not crash
-    let session = DiskSession.shared
+  func sharedSession() async throws {
+    let session = try #require(DiskSession.shared)
     #expect(await session.ejectableVolumeCount() >= 0)
   }
 
@@ -30,6 +30,67 @@ struct DiskSessionTests {
     let count2 = await session2.ejectableVolumeCount()
 
     #expect(count1 == count2, "Both sessions should see the same volumes")
+  }
+
+  @Test("Physical resolver ends at an idempotent outermost whole medium")
+  func physicalResolverFindsOrderedWholeMedia() throws {
+    let session = try #require(DASessionCreate(kCFAllocatorDefault))
+    let rootDisk = try #require(DADiskCreateFromVolumePath(
+      kCFAllocatorDefault,
+      session,
+      URL(fileURLWithPath: "/") as CFURL
+    ))
+
+    let firstResolution = try #require(PhysicalDiskResolver.resolve(
+      rootDisk,
+      session: session
+    ))
+    let secondResolution = try #require(PhysicalDiskResolver.resolve(
+      firstResolution.physicalDisk,
+      session: session
+    ))
+
+    #expect(!firstResolution.layers.isEmpty)
+    #expect(firstResolution.physicalBSDName == secondResolution.physicalBSDName)
+    #expect(secondResolution.bsdNames == [firstResolution.physicalBSDName])
+  }
+
+  @Test("APFS eject plan preserves inner-to-outer layer order")
+  func apfsEjectPlanOrder() throws {
+    let plan = try #require(DiskEjectPlan(
+      unmountBSDNames: ["disk7"],
+      ejectBSDNames: ["disk7", "disk6"]
+    ))
+
+    #expect(plan.unmountBSDNames == ["disk7"])
+    #expect(plan.ejectBSDNames == ["disk7", "disk6"])
+    #expect(plan.physicalBSDName == "disk6")
+  }
+
+  @Test("Device topology merges branches and keeps dependencies before physical media")
+  func deviceTopologyMergesBranches() throws {
+    let session = try #require(DASessionCreate(kCFAllocatorDefault))
+    let rootDisk = try #require(DADiskCreateFromVolumePath(
+      kCFAllocatorDefault,
+      session,
+      URL(fileURLWithPath: "/") as CFURL
+    ))
+    let layer: (String) -> ResolvedDiskLayer = {
+      ResolvedDiskLayer(disk: rootDisk, bsdName: $0)
+    }
+    let deepBranch = try #require(ResolvedDiskTopology(
+      layers: [layer("disk9"), layer("disk8"), layer("disk6")]
+    ))
+    let siblingBranch = try #require(ResolvedDiskTopology(
+      layers: [layer("disk7"), layer("disk6")]
+    ))
+    let device = try #require(ResolvedDeviceEjectTopology(
+      topologies: [siblingBranch, deepBranch]
+    ))
+
+    #expect(device.unmountLayers.map(\.bsdName) == ["disk9", "disk7"])
+    #expect(device.ejectLayers.map(\.bsdName) == ["disk9", "disk7", "disk8", "disk6"])
+    #expect(device.physicalBSDName == "disk6")
   }
 
   @Test("Empty batch returns zero counts")
@@ -52,6 +113,65 @@ struct DiskSessionTests {
     // After invalidation, operations should fail
     let result = await session.unmount(path: "/Volumes/NonExistent")
     #expect(!result.success)
+  }
+
+  @Test("Invalid session preserves one structured outcome per physical device")
+  func invalidSessionProgressIsGrouped() async throws {
+    let sourceSession = try #require(DASessionCreate(kCFAllocatorDefault))
+    let rootURL = URL(fileURLWithPath: "/") as CFURL
+    let disk = try #require(DADiskCreateFromVolumePath(
+      kCFAllocatorDefault,
+      sourceSession,
+      rootURL
+    ))
+    let volumes = [
+      Volume(
+        info: VolumeInfo(
+          name: "Private Project Alpha",
+          path: "/Volumes/Private Project Alpha",
+          bsdName: "synthetic-a"
+        ),
+        disk: disk
+      ),
+      Volume(
+        info: VolumeInfo(
+          name: "Private Project Beta",
+          path: "/Volumes/Private Project Beta",
+          bsdName: "synthetic-b"
+        ),
+        disk: disk
+      ),
+    ]
+    let session = try DiskSession()
+    await session.invalidate()
+    let recorder = ProgressRecorder()
+
+    let result = await session.ejectAll(volumes) { event in
+      await recorder.append(event)
+    }
+    let progress = await recorder.snapshot
+
+    #expect(result.totalCount == 2)
+    #expect(result.successCount == 0)
+    #expect(result.failedCount == 2)
+    #expect(progress.count == 1, "Two partitions on one whole disk must produce one workflow")
+    guard case .completed(let deviceID, .failed(let failure, _)) = progress.first else {
+      Issue.record("Expected one structured session failure")
+      return
+    }
+    #expect(deviceID == failure.deviceID)
+    #expect(failure.stage == .unmount)
+    #expect(failure.category == .session)
+  }
+}
+
+private actor ProgressRecorder {
+  private var events: [DeviceEjectEvent] = []
+
+  var snapshot: [DeviceEjectEvent] { events }
+
+  func append(_ event: DeviceEjectEvent) {
+    events.append(event)
   }
 }
 

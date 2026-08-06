@@ -6,6 +6,7 @@
 //
 
 import DiskArbitration
+import Darwin
 import Foundation
 
 /// Errors that can occur during disk operations.
@@ -116,6 +117,88 @@ public enum DiskError: Error, Sendable, CustomStringConvertible {
   }
 }
 
+// MARK: - Error Categories
+
+/// Coarse, stable classification of disk errors.
+///
+/// Use this instead of matching substrings of `DiskError.description`:
+/// descriptions are human-facing wording that can change, while these
+/// categories are part of the API. Raw values are safe to include in logs.
+public enum DiskErrorCategory: String, Sendable, Codable, Hashable {
+  /// Not permitted or not privileged (typically missing Full Disk Access)
+  case permission
+
+  /// Volume is in use: open files or another process holds exclusive access
+  case busy
+
+  /// The operation exceeded its time budget
+  case timeout
+
+  /// Disk or volume not found, or the disk reference is invalid
+  case notFound
+
+  /// The volume is not currently mounted
+  case notMounted
+
+  /// The device is not ready
+  case notReady
+
+  /// The media is read-only
+  case notWritable
+
+  /// The operation is not supported for this disk type
+  case unsupported
+
+  /// Invalid argument passed to DiskArbitration
+  case badArgument
+
+  /// Insufficient system resources
+  case noResources
+
+  /// The DiskArbitration session could not be created or is invalid
+  case session
+
+  /// The operation was cancelled
+  case cancelled
+
+  /// General or unknown errors
+  case other
+}
+
+extension DiskError {
+  /// The coarse category for this error.
+  public var category: DiskErrorCategory {
+    switch self {
+    case .notPermitted, .notPrivileged:
+      return .permission
+    case .busy, .exclusiveAccess:
+      return .busy
+    case .timeout:
+      return .timeout
+    case .notFound, .invalidDiskReference:
+      return .notFound
+    case .notMounted:
+      return .notMounted
+    case .notReady:
+      return .notReady
+    case .notWritable:
+      return .notWritable
+    case .unsupported:
+      return .unsupported
+    case .badArgument:
+      return .badArgument
+    case .noResources:
+      return .noResources
+    case .sessionCreationFailed:
+      return .session
+    case .cancelled:
+      return .cancelled
+    case .success, .generalError, .unknown:
+      return .other
+    }
+  }
+}
+
 // MARK: - DAReturn to DiskError Conversion
 
 extension DiskError {
@@ -135,6 +218,47 @@ extension DiskError {
   private static let kDAReturnNotReady: DAReturn = Int32(bitPattern: 0xF8DA_000A)
   private static let kDAReturnNotWritable: DAReturn = Int32(bitPattern: 0xF8DA_000B)
   private static let kDAReturnUnsupported: DAReturn = Int32(bitPattern: 0xF8DA_000C)
+
+  // DADissenter.h permits BSD errno values encoded with mach/error.h's
+  // unix_err(errno): kernel system 0, subsystem 3, errno in the low 14 bits.
+  // For example, EBUSY (0x10) becomes 0x0000C010.
+  private static func decodedBSDErrno(from status: DAReturn) -> Int32? {
+    let bits = UInt32(bitPattern: status)
+    let system = bits >> 26
+    let subsystem = (bits >> 14) & 0x0FFF
+    guard system == 0, subsystem == 3 else { return nil }
+    return Int32(bits & 0x3FFF)
+  }
+
+  private static func fromEncodedBSDErrno(
+    status: DAReturn,
+    message: String?
+  ) -> DiskError? {
+    guard let code = decodedBSDErrno(from: status) else { return nil }
+
+    switch code {
+    case EBUSY:
+      return .busy(message: message)
+    case EACCES, EPERM:
+      return .notPermitted(message: message)
+    case EINVAL:
+      return .badArgument(message: message)
+    case ENOMEM, ENFILE, EMFILE:
+      return .noResources(message: message)
+    case ENOENT, ENODEV:
+      return .notFound(message: message)
+    case ENXIO:
+      return .notReady(message: message)
+    case EROFS:
+      return .notWritable(message: message)
+    case ENOTSUP:
+      return .unsupported(message: message)
+    case ETIMEDOUT:
+      return .timeout
+    default:
+      return nil
+    }
+  }
 
   /// Creates a DiskError from a DADissenter object
   /// - Parameter dissenter: The dissenter returned from a DiskArbitration callback
@@ -189,6 +313,9 @@ extension DiskError {
     case kDAReturnUnsupported:
       return .unsupported(message: message)
     default:
+      if let bsdError = fromEncodedBSDErrno(status: status, message: message) {
+        return bsdError
+      }
       return .unknown(status: status, message: message)
     }
   }

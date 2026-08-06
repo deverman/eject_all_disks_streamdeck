@@ -60,6 +60,34 @@ struct DiskErrorTests {
     }
   }
 
+  @Test("BSD-encoded EBUSY from Disk Arbitration maps to busy")
+  func bsdEncodedBusyConversion() {
+    let raw = Int32(bitPattern: 0x0000_C010)
+    let error = DiskError.from(status: raw, message: nil)
+
+    if case .busy = error {
+      #expect(error.category == .busy)
+      #expect(error.isDiskBusy)
+    } else {
+      Issue.record("Expected unix_err(EBUSY) to map to .busy")
+    }
+  }
+
+  @Test("Other recognized BSD-encoded statuses retain typed categories")
+  func otherBSDEncodedConversions() {
+    let permission = DiskError.from(
+      status: Int32(bitPattern: 0x0000_C001),
+      message: nil
+    )
+    let readOnly = DiskError.from(
+      status: Int32(bitPattern: 0x0000_C01E),
+      message: nil
+    )
+
+    #expect(permission.category == .permission)
+    #expect(readOnly.category == .notWritable)
+  }
+
   @Test("Unknown status codes produce .unknown error")
   func unknownStatusCode() {
     let raw = Int32(bitPattern: 0x1234_5678)
@@ -86,5 +114,68 @@ struct DiskErrorTests {
   func nilDissenter() {
     let error = DiskError.from(dissenter: nil)
     #expect(error == nil)
+  }
+}
+
+@Suite("DiskError Category Tests")
+struct DiskErrorCategoryTests {
+
+  @Test("Permission errors map to .permission")
+  func permissionCategory() {
+    #expect(DiskError.notPermitted(message: nil).category == .permission)
+    #expect(DiskError.notPrivileged(message: nil).category == .permission)
+  }
+
+  @Test("Busy errors map to .busy")
+  func busyCategory() {
+    #expect(DiskError.busy(message: nil).category == .busy)
+    #expect(DiskError.exclusiveAccess(message: nil).category == .busy)
+  }
+
+  @Test("Timeout maps to .timeout")
+  func timeoutCategory() {
+    #expect(DiskError.timeout.category == .timeout)
+  }
+
+  @Test("Session failure maps to .session")
+  func sessionCategory() {
+    #expect(DiskError.sessionCreationFailed.category == .session)
+  }
+
+  @Test("General and unknown errors map to .other")
+  func otherCategory() {
+    #expect(DiskError.generalError(message: nil).category == .other)
+    #expect(DiskError.unknown(status: 42, message: nil).category == .other)
+  }
+
+  @Test("Category raw values are log-safe identifiers")
+  func rawValues() {
+    #expect(DiskErrorCategory.permission.rawValue == "permission")
+    #expect(DiskErrorCategory.busy.rawValue == "busy")
+    #expect(DiskErrorCategory.timeout.rawValue == "timeout")
+  }
+}
+
+@Suite("Disk Operation Registry Smoke Tests")
+struct DiskOperationRegistrySmokeTests {
+
+  @Test("Continuation resumes exactly once when raced")
+  func resumeOnce() async {
+    let registry = DiskOperationRegistry()
+    let result: DiskOperationResult = await withCheckedContinuation { continuation in
+      let token = registry.register(
+        continuation: continuation,
+        stage: .unmount,
+        elapsed: { 0.1 }
+      )
+      let first = registry.completeFromCallback(token: token, error: nil, rawStatus: nil)
+      let second = registry.completeAsTimeout(token: token)
+      #expect(first, "First resume should win")
+      #expect(!second, "Second resume should be dropped")
+    }
+
+    #expect(result.success, "The first (winning) result should be delivered")
+    #expect(result.error == nil)
+    #expect(registry.pendingCount == 0)
   }
 }
