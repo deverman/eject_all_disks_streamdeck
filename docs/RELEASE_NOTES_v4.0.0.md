@@ -6,14 +6,12 @@ the minimum supported Stream Deck version.
 
 ## Marketplace update
 
-- Confirmed safe ejection: success appears only after macOS confirms the
-  physical device was ejected, including APFS-backed drives.
-- Faster, clearer feedback: busy disks show `In Use` immediately, while longer
-  operations display `Working…` and `Check Disk`.
-- Better multi-drive reliability: SafeEject handles multiple disks concurrently
-  and reports mixed success or failure honestly.
-- More responsive disk status: mount, unmount, rename, and wake events update
-  the key without aggressive polling.
+- Know when your drives are safe to unplug—SafeEject waits for them to finish
+  ejecting before showing success.
+- See immediately when a drive is still in use, with clear updates if ejection
+  takes longer than expected.
+- Eject multiple drives at once and see if any drive needs your attention.
+- Keep your key up to date as drives are connected, removed, or your Mac wakes.
 - Requires macOS 26 or later and Stream Deck 6.9 or later.
 
 ## What you will notice
